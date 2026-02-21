@@ -8,6 +8,10 @@ interface SidebarProps {
     locations: MapLocation[];
     algorithm: string;
     onAlgorithmChange: (algo: string) => void;
+
+    solverEngine: 'ts' | 'cpp';
+    onSolverEngineChange: (engine: 'ts' | 'cpp') => void;
+
     params: LogisticsParams;
     priorityEnabled: boolean;
     onParamChange: <K extends keyof LogisticsParams>(key: K, value: LogisticsParams[K]) => void;
@@ -19,7 +23,6 @@ interface SidebarProps {
     onSolve: () => void;
     solveResult: SolveResult | null;
     isLoading: boolean;
-    // Road route button
     showRoadRouteBtn: boolean;
     roadRouteShown: boolean;
     roadRouteLoading: boolean;
@@ -27,7 +30,7 @@ interface SidebarProps {
 }
 
 const ALGORITHMS = [
-    { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · O(n²·2ⁿ) · n≤18' },
+    { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · TS≤18 · C++⚡ larger n' },
     { value: 'nearest-neighbor', name: 'Nearest Neighbor', desc: 'Greedy · O(n²) · Any n' },
     { value: 'qaoa', name: 'Quantum QAOA', desc: 'Hybrid · Qiskit · n≤8' },
     { value: 'compare', name: 'Compare Mode', desc: 'Both · Gap Analysis' },
@@ -37,6 +40,10 @@ export default function Sidebar({
     locations,
     algorithm,
     onAlgorithmChange,
+
+    solverEngine,
+    onSolverEngineChange,
+
     params,
     priorityEnabled,
     onParamChange,
@@ -118,9 +125,27 @@ export default function Sidebar({
                                 </label>
                             ))}
                         </div>
+
+                        {algorithm === 'held-karp' && (
+                            <div style={{ marginTop: '10px' }}>
+                                <label className="param-label">Engine</label>
+                                <select
+                                    value={solverEngine}
+                                    onChange={(e) =>
+                                        onSolverEngineChange(e.target.value as 'ts' | 'cpp')
+                                    }
+                                    className="param-slider"
+                                >
+                                    <option value="ts">TypeScript (≤18)</option>
+                                    <option value="cpp">C++ Native ⚡</option>
+                                </select>
+                            </div>
+                        )}
                     </div>
                 </section>
 
+                {/* Logistics Parameters */}
+                {/* ⬇️ FROM HERE DOWN YOUR FILE IS 100% UNCHANGED */}
                 {/* Logistics Parameters */}
                 <section className="panel">
                     <div className="panel-header">

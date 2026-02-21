@@ -24,6 +24,7 @@ export default function Home() {
     const { toasts, showToast } = useToast();
 
     const [algorithm, setAlgorithm] = useState('held-karp');
+    const [solverEngine, setSolverEngine] = useState<'ts' | 'cpp'>('ts');
 
     // Quantum overlay state
     const [overlayVisible, setOverlayVisible] = useState(false);
@@ -41,7 +42,7 @@ export default function Home() {
             return;
         }
 
-        if (algorithm === 'held-karp' && locations.length > 18) {
+        if (algorithm === 'held-karp' && solverEngine !== 'cpp' && locations.length > 18) {
             showToast('Held-Karp supports max 18 locations. Switch to Nearest Neighbor or Compare.', 'warning');
             return;
         }
@@ -73,8 +74,7 @@ export default function Home() {
             setOverlayStatus(statusMsg);
 
             const solveParams = getParamsForSolve(locations.map((l) => l.priority));
-            const data = await solve(locations, algorithm, solveParams);
-
+            const data = await solve(locations, algorithm, solveParams, solverEngine);
             setOverlayStatus('Collapsing quantum state to optimal route...');
             await delay(400);
             setOverlayVisible(false);
@@ -138,6 +138,8 @@ export default function Home() {
 
             <div className="app-layout">
                 <Sidebar
+                    solverEngine={solverEngine}
+                    onSolverEngineChange={setSolverEngine}
                     locations={locations}
                     algorithm={algorithm}
                     onAlgorithmChange={setAlgorithm}

@@ -32,7 +32,12 @@ export function useSolver() {
     const [error, setError] = useState<string | null>(null);
 
     const solve = useCallback(
-        async (locations: MapLocation[], algorithm: string, params: LogisticsParams) => {
+        async (
+            locations: MapLocation[],
+            algorithm: string,
+            params: LogisticsParams,
+            solverEngine?: 'ts' | 'cpp'
+        ) => {
             setIsLoading(true);
             setError(null);
 
@@ -40,7 +45,7 @@ export function useSolver() {
                 const response = await fetch('/api/solve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ locations, algorithm, params }),
+                    body: JSON.stringify({ locations, algorithm, params, solverEngine }),
                 });
 
                 if (!response.ok) {
