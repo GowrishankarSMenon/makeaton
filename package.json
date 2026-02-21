@@ -1,0 +1,25 @@
+{
+  "name": "quantum-route-optimizer",
+  "version": "2.0.0",
+  "description": "Quantum-Hybrid Delivery Route Optimizer — TSP solver with Next.js + Leaflet.js map UI",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.8",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
