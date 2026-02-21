@@ -46,14 +46,13 @@ def solve():
         print(f"[QAOA] Solving TSP for {n} cities ({n*n} qubits)...", flush=True)
 
         # Step 1: Build QUBO
-        tsp_data = build_tsp_qubo(dist_matrix)
-        tsp_data["original_distances"] = dist_matrix
-        print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits", flush=True)
+        tsp_data = build_tsp_qubo(dist_matrix, start_node=start_node)
+        print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits (reduced={tsp_data.get('reduced', False)})", flush=True)
 
         # Step 2: Solve with QAOA
         # Use fewer reps for larger problems to keep runtime manageable
         reps = 1
-        max_iter = 30
+        max_iter = 20
 
         qaoa_result = solve_with_qaoa(tsp_data["qubo"], reps=reps, max_iterations=max_iter)
         print(f"[QAOA] Solved in {qaoa_result['qaoa_time_ms']} ms", flush=True)
@@ -61,14 +60,14 @@ def solve():
         # Step 3: Decode to tour
         decoded = decode_solution(qaoa_result["result"], tsp_data)
 
-        # If tour doesn't start at startNode, rotate it
+        # Tour from reduced QUBO already starts at start_node;
+        # rotate as safety net for full-encoding fallback.
         tour = decoded["tour"]
         if tour[0] != start_node and start_node in tour:
-            # Rotate tour so it starts at startNode
-            cycle = tour[:-1]  # remove closing node
+            cycle = tour[:-1]
             idx = cycle.index(start_node)
             cycle = cycle[idx:] + cycle[:idx]
-            cycle.append(cycle[0])  # close the tour
+            cycle.append(cycle[0])
             tour = cycle
 
         # Calculate actual distance with original matrix
