@@ -3,9 +3,17 @@
 interface QuantumOverlayProps {
     isVisible: boolean;
     statusText: string;
+    executionMode?: string;
+    backend?: string;
 }
 
-export default function QuantumOverlay({ isVisible, statusText }: QuantumOverlayProps) {
+export default function QuantumOverlay({ isVisible, statusText, executionMode, backend }: QuantumOverlayProps) {
+    const modeLabel =
+        executionMode === 'real_hardware' ? '🟢 IBM Quantum Hardware' :
+        executionMode === 'ibm_simulator' ? '🔵 IBM Cloud Simulator' :
+        executionMode === 'local_fallback' ? '🟡 Local Fallback' :
+        '⚪ Local Simulator';
+
     return (
         <div id="quantum-overlay" className={`quantum-overlay${isVisible ? '' : ' hidden'}`}>
             <div className="quantum-loader">
@@ -19,6 +27,11 @@ export default function QuantumOverlay({ isVisible, statusText }: QuantumOverlay
                 <div className="quantum-text">
                     <span className="qt-label">Exploring State Space</span>
                     <span className="qt-sub" id="quantum-status">{statusText}</span>
+                    {(executionMode || backend) && (
+                        <span className="qt-sub" style={{ fontSize: '10px', opacity: 0.7, marginTop: '4px' }}>
+                            {modeLabel}{backend ? ` · ${backend}` : ''}
+                        </span>
+                    )}
                 </div>
             </div>
         </div>

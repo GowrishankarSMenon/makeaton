@@ -475,6 +475,66 @@ function SingleResults({ data, showRoadRouteBtn, roadRouteShown, roadRouteLoadin
                 {qm && (
                     <div className="result-card full-width" style={{ marginTop: '8px' }}>
                         <div className="result-label"><i className="fas fa-atom"></i> Quantum Metrics</div>
+
+                        {/* IBM Backend badge */}
+                        {qm.backend && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', marginBottom: '4px' }}>
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase' as const,
+                                    letterSpacing: '0.5px',
+                                    background:
+                                        qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.15)' :
+                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.15)' :
+                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.15)' :
+                                        'rgba(148,163,184,0.15)',
+                                    color:
+                                        qm.executionMode === 'real_hardware' ? '#22c55e' :
+                                        qm.executionMode === 'ibm_simulator' ? '#3b82f6' :
+                                        qm.executionMode === 'local_fallback' ? '#f59e0b' :
+                                        '#94a3b8',
+                                    border: `1px solid ${
+                                        qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.3)' :
+                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.3)' :
+                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.3)' :
+                                        'rgba(148,163,184,0.3)'
+                                    }`,
+                                }}>
+                                    <i className={`fas fa-${
+                                        qm.executionMode === 'real_hardware' ? 'microchip' :
+                                        qm.executionMode === 'ibm_simulator' ? 'cloud' :
+                                        qm.executionMode === 'local_fallback' ? 'exclamation-triangle' :
+                                        'desktop'
+                                    }`}></i>
+                                    {qm.executionMode === 'real_hardware' ? 'Real Hardware' :
+                                     qm.executionMode === 'ibm_simulator' ? 'IBM Cloud Sim' :
+                                     qm.executionMode === 'local_fallback' ? 'Local Fallback' :
+                                     'Local Simulator'}
+                                </span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                    {qm.backend}
+                                </span>
+                            </div>
+                        )}
+                        {qm.fallbackReason && (
+                            <div style={{
+                                fontSize: '10px',
+                                color: '#f59e0b',
+                                marginBottom: '4px',
+                                padding: '4px 6px',
+                                background: 'rgba(245,158,11,0.08)',
+                                borderRadius: '4px',
+                            }}>
+                                <i className="fas fa-info-circle"></i> Fallback: {qm.fallbackReason}
+                            </div>
+                        )}
+
                         <div className="result-grid" style={{ marginTop: '6px' }}>
                             <div className="result-card">
                                 <div className="result-label">Qubits</div>

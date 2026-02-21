@@ -182,6 +182,9 @@ export async function POST(request: NextRequest) {
             solverName: quantumData.solverName,
             isFeasible: quantumData.isFeasible,
             quantumMetrics: quantumData.quantumMetrics,
+            backend: quantumData.quantumMetrics?.backend ?? 'unknown',
+            executionMode: quantumData.quantumMetrics?.executionMode ?? 'local_simulator',
+            fallbackReason: quantumData.quantumMetrics?.fallbackReason ?? null,
           },
         };
 

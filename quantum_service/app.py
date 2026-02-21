@@ -10,14 +10,19 @@ Receives a distance matrix from the Node.js server, runs the quantum pipeline:
 Runs on port 5001.
 """
 
+import os
 import sys
 import traceback
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load .env from the quantum_service directory
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from tsp_qubo import build_tsp_qubo, decode_solution
-from qaoa_solver import solve_with_qaoa
+from qaoa_solver import solve_with_qaoa, reset_ibm_service
 
 app = Flask(__name__)
 CORS(app)
@@ -40,8 +45,8 @@ def solve():
         n = len(dist_matrix)
         if n < 2:
             return jsonify({"error": "At least 2 locations required"}), 400
-        if n > 8:
-            return jsonify({"error": f"QAOA is limited to 8 locations (got {n}). n²={n*n} qubits."}), 400
+        if n > 10:
+            return jsonify({"error": f"QAOA limited to 10 locations (got {n}). n²={n*n} qubits."}), 400
 
         print(f"[QAOA] Solving TSP for {n} cities ({n*n} qubits)...", flush=True)
 
@@ -51,9 +56,9 @@ def solve():
         print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits", flush=True)
 
         # Step 2: Solve with QAOA
-        # Use fewer reps for larger problems to keep runtime manageable
+        # Reps=1 keeps circuit shallow. maxiter=1 for speed (single IBM job).
         reps = 1
-        max_iter = 30
+        max_iter = 1
 
         qaoa_result = solve_with_qaoa(tsp_data["qubo"], reps=reps, max_iterations=max_iter)
         print(f"[QAOA] Solved in {qaoa_result['qaoa_time_ms']} ms", flush=True)
@@ -89,6 +94,9 @@ def solve():
                 "qaoaEnergy": decoded["energy"],
                 "solveTimeMs": qaoa_result["qaoa_time_ms"],
                 "energyHistory": qaoa_result.get("energy_history", []),
+                "backend": qaoa_result.get("backend", "unknown"),
+                "executionMode": qaoa_result.get("execution_mode", "local_simulator"),
+                "fallbackReason": qaoa_result.get("ibm_fallback_reason", None),
             },
         }
 
@@ -102,9 +110,49 @@ def solve():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "service": "quantum-solver"})
+    quantum_mode = os.environ.get("QUANTUM_MODE", "local")
+    ibm_token_set = bool(os.environ.get("IBM_QUANTUM_TOKEN", "").strip())
+    return jsonify({
+        "status": "ok",
+        "service": "quantum-solver",
+        "quantumMode": quantum_mode,
+        "ibmTokenConfigured": ibm_token_set,
+    })
+
+
+@app.route("/ibm-status", methods=["GET"])
+def ibm_status():
+    """Check IBM Quantum connectivity and available backends."""
+    try:
+        from qaoa_solver import _get_ibm_service
+        service, error = _get_ibm_service()
+        if service is None:
+            return jsonify({
+                "connected": False,
+                "error": error,
+            })
+
+        backends = service.backends(operational=True)
+        backend_list = [
+            {"name": b.name, "qubits": b.num_qubits, "simulator": b.simulator}
+            for b in backends[:10]  # limit to 10
+        ]
+        return jsonify({
+            "connected": True,
+            "backends": backend_list,
+        })
+    except Exception as e:
+        return jsonify({"connected": False, "error": str(e)}), 500
+
+
+@app.route("/reset-ibm", methods=["POST"])
+def reset_ibm():
+    """Reset the cached IBM service (e.g. after updating token)."""
+    reset_ibm_service()
+    return jsonify({"status": "ok", "message": "IBM service cache cleared"})
 
 
 if __name__ == "__main__":
-    print("[QAOA] Quantum solver service starting on port 5001...", flush=True)
+    mode = os.environ.get("QUANTUM_MODE", "local")
+    print(f"[QAOA] Quantum solver service starting on port 5001 (mode={mode})...", flush=True)
     app.run(host="0.0.0.0", port=5001, debug=False)
