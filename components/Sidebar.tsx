@@ -3,6 +3,7 @@
 import { MapLocation } from '@/hooks/useLocations';
 import { LogisticsParams } from '@/hooks/useParams';
 import { SolveResult } from '@/hooks/useSolver';
+import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
 
 interface SidebarProps {
     locations: MapLocation[];
@@ -27,6 +28,18 @@ interface SidebarProps {
     roadRouteShown: boolean;
     roadRouteLoading: boolean;
     onShowRoadRoute: () => void;
+
+    // Restrictions
+    roadBlocks: RoadBlock[];
+    congestionZones: CongestionZone[];
+    blockModeActive: boolean;
+    congestionModeActive: boolean;
+    onToggleBlockMode: (active: boolean) => void;
+    onToggleCongestionMode: (active: boolean) => void;
+    onRemoveBlock: (id: string) => void;
+    onRemoveCongestion: (id: string) => void;
+    onUpdateCongestion: (id: string, updates: Partial<Pick<CongestionZone, 'radiusKm' | 'intensity'>>) => void;
+    onClearRestrictions: () => void;
 }
 
 const ALGORITHMS = [
@@ -59,7 +72,21 @@ export default function Sidebar({
     roadRouteShown,
     roadRouteLoading,
     onShowRoadRoute,
+
+    // Restrictions
+    roadBlocks,
+    congestionZones,
+    blockModeActive,
+    congestionModeActive,
+    onToggleBlockMode,
+    onToggleCongestionMode,
+    onRemoveBlock,
+    onRemoveCongestion,
+    onUpdateCongestion,
+    onClearRestrictions,
 }: SidebarProps) {
+    const totalRestrictions = roadBlocks.length + congestionZones.length;
+
     return (
         <aside id="sidebar" className="sidebar">
             <SidebarHeader />
@@ -153,8 +180,6 @@ export default function Sidebar({
                 </section>
 
                 {/* Logistics Parameters */}
-                {/* ⬇️ FROM HERE DOWN YOUR FILE IS 100% UNCHANGED */}
-                {/* Logistics Parameters */}
                 <section className="panel">
                     <div className="panel-header">
                         <h2><i className="fas fa-sliders-h"></i> Logistics Parameters</h2>
@@ -224,6 +249,168 @@ export default function Sidebar({
                                 <span className="toggle-text">Enable per-node priority</span>
                             </div>
                         </div>
+                    </div>
+                </section>
+
+                {/* ═══ Road Restrictions Panel ═══ */}
+                <section className="panel restrictions-panel">
+                    <div className="panel-header">
+                        <h2><i className="fas fa-ban"></i> Road Restrictions</h2>
+                        {totalRestrictions > 0 && (
+                            <span className="badge restriction-badge">{totalRestrictions}</span>
+                        )}
+                    </div>
+                    <div className="panel-body restrictions-body">
+                        {/* Road Block Mode */}
+                        <div className="restriction-section">
+                            <div className="restriction-header">
+                                <div className="restriction-title">
+                                    <span className="restriction-icon block-icon">🚧</span>
+                                    <div>
+                                        <div className="restriction-name">Road Blocks</div>
+                                        <div className="restriction-desc">Block a road segment between stops</div>
+                                    </div>
+                                </div>
+                                <label className={`mode-toggle${blockModeActive ? ' active' : ''}`}>
+                                    <input
+                                        type="checkbox"
+                                        checked={blockModeActive}
+                                        onChange={(e) => onToggleBlockMode(e.target.checked)}
+                                    />
+                                    <span className="mode-toggle-slider"></span>
+                                    <span className="mode-toggle-label">{blockModeActive ? 'Placing' : 'Off'}</span>
+                                </label>
+                            </div>
+
+                            {blockModeActive && (
+                                <div className="restriction-hint">
+                                    <i className="fas fa-crosshairs"></i>
+                                    Click on the map to place a road block
+                                </div>
+                            )}
+
+                            {roadBlocks.length > 0 && (
+                                <ul className="restriction-list">
+                                    {roadBlocks.map((block, idx) => (
+                                        <li key={block.id} className="restriction-item block-item">
+                                            <span className="restriction-item-icon">🚧</span>
+                                            <div className="restriction-item-info">
+                                                <span className="restriction-item-label">Block {idx + 1}</span>
+                                                <span className="restriction-item-coords">
+                                                    {block.lat.toFixed(4)}, {block.lng.toFixed(4)}
+                                                </span>
+                                            </div>
+                                            <button
+                                                className="restriction-remove"
+                                                title="Remove block"
+                                                onClick={() => onRemoveBlock(block.id)}
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        <div className="restriction-divider"></div>
+
+                        {/* Congestion Zone Mode */}
+                        <div className="restriction-section">
+                            <div className="restriction-header">
+                                <div className="restriction-title">
+                                    <span className="restriction-icon congestion-icon">🔴</span>
+                                    <div>
+                                        <div className="restriction-name">Traffic Congestion Zones</div>
+                                        <div className="restriction-desc">Simulate heavy traffic in an area</div>
+                                    </div>
+                                </div>
+                                <label className={`mode-toggle congestion${congestionModeActive ? ' active' : ''}`}>
+                                    <input
+                                        type="checkbox"
+                                        checked={congestionModeActive}
+                                        onChange={(e) => onToggleCongestionMode(e.target.checked)}
+                                    />
+                                    <span className="mode-toggle-slider"></span>
+                                    <span className="mode-toggle-label">{congestionModeActive ? 'Placing' : 'Off'}</span>
+                                </label>
+                            </div>
+
+                            {congestionModeActive && (
+                                <div className="restriction-hint congestion-hint">
+                                    <i className="fas fa-crosshairs"></i>
+                                    Click on the map to place a congestion zone
+                                </div>
+                            )}
+
+                            {congestionZones.length > 0 && (
+                                <ul className="restriction-list">
+                                    {congestionZones.map((zone, idx) => (
+                                        <li key={zone.id} className="restriction-item congestion-item">
+                                            <span className="restriction-item-icon">🔴</span>
+                                            <div className="restriction-item-info">
+                                                <span className="restriction-item-label">Zone {idx + 1}</span>
+                                                <span className="restriction-item-coords">
+                                                    {zone.lat.toFixed(4)}, {zone.lng.toFixed(4)}
+                                                </span>
+                                                <div className="zone-controls">
+                                                    <div className="zone-control">
+                                                        <span className="zone-control-label">Radius</span>
+                                                        <input
+                                                            type="range"
+                                                            className="zone-slider"
+                                                            min={0.5}
+                                                            max={10}
+                                                            step={0.5}
+                                                            value={zone.radiusKm}
+                                                            onChange={(e) =>
+                                                                onUpdateCongestion(zone.id, {
+                                                                    radiusKm: parseFloat(e.target.value),
+                                                                })
+                                                            }
+                                                        />
+                                                        <span className="zone-control-value">{zone.radiusKm} km</span>
+                                                    </div>
+                                                    <div className="zone-control">
+                                                        <span className="zone-control-label">Intensity</span>
+                                                        <input
+                                                            type="range"
+                                                            className="zone-slider intensity"
+                                                            min={1.5}
+                                                            max={5.0}
+                                                            step={0.5}
+                                                            value={zone.intensity}
+                                                            onChange={(e) =>
+                                                                onUpdateCongestion(zone.id, {
+                                                                    intensity: parseFloat(e.target.value),
+                                                                })
+                                                            }
+                                                        />
+                                                        <span className="zone-control-value">{zone.intensity.toFixed(1)}×</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                className="restriction-remove"
+                                                title="Remove zone"
+                                                onClick={() => onRemoveCongestion(zone.id)}
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        {totalRestrictions > 0 && (
+                            <button
+                                className="btn btn-ghost btn-sm restriction-clear"
+                                onClick={onClearRestrictions}
+                            >
+                                <i className="fas fa-eraser"></i> Clear All Restrictions
+                            </button>
+                        )}
                     </div>
                 </section>
 

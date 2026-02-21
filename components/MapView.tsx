@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapLocation } from '@/hooks/useLocations';
 import { SolveResult } from '@/hooks/useSolver';
+import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
 import { getRoadRoute } from '@/lib/visualization';
 
 const TILE_LAYERS = {
@@ -34,6 +35,15 @@ interface MapViewProps {
     onLocationRemove: (index: number) => void;
     onRoadRouteDrawn: () => void;
     onRoadRouteError: (error: string) => void;
+    // Restrictions
+    roadBlocks: RoadBlock[];
+    congestionZones: CongestionZone[];
+    blockModeActive: boolean;
+    congestionModeActive: boolean;
+    onRemoveBlock: (id: string) => void;
+    onRemoveCongestion: (id: string) => void;
+    onUpdateBlockPosition: (id: string, lat: number, lng: number) => void;
+    onUpdateCongestionPosition: (id: string, lat: number, lng: number) => void;
 }
 
 export default function MapView({
@@ -44,11 +54,22 @@ export default function MapView({
     onLocationRemove,
     onRoadRouteDrawn,
     onRoadRouteError,
+    // Restrictions
+    roadBlocks,
+    congestionZones,
+    blockModeActive,
+    congestionModeActive,
+    onRemoveBlock,
+    onRemoveCongestion,
+    onUpdateBlockPosition,
+    onUpdateCongestionPosition,
 }: MapViewProps) {
     const mapRef = useRef<L.Map | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<L.Marker[]>([]);
     const routeLayersRef = useRef<L.Layer[]>([]);
+    const blockMarkersRef = useRef<L.Marker[]>([]);
+    const congestionLayersRef = useRef<L.Circle[]>([]);
     const [isDark, setIsDark] = useState(false);
     const tileLayerRef = useRef<L.TileLayer | null>(null);
     const onLocationAddRef = useRef(onLocationAdd);
@@ -133,6 +154,151 @@ export default function MapView({
             markersRef.current.push(marker);
         });
     }, [locations]);
+
+    // Render road block markers
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        // Clear old block markers
+        blockMarkersRef.current.forEach((m) => map.removeLayer(m));
+        blockMarkersRef.current = [];
+
+        roadBlocks.forEach((block) => {
+            const blockHtml = `
+                <div class="block-marker">
+                    <div class="block-marker-inner">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="8" width="18" height="8" rx="2" fill="#ef4444" stroke="#fff"/>
+                            <line x1="3" y1="12" x2="21" y2="12" stroke="#fff" stroke-width="1.5"/>
+                            <line x1="7" y1="16" x2="7" y2="20" stroke="#fff"/>
+                            <line x1="17" y1="16" x2="17" y2="20" stroke="#fff"/>
+                        </svg>
+                    </div>
+                    <div class="block-marker-pulse"></div>
+                </div>
+            `;
+
+            const icon = L.divIcon({
+                html: blockHtml,
+                className: '',
+                iconSize: [36, 36],
+                iconAnchor: [18, 18],
+            });
+
+            const marker = L.marker([block.lat, block.lng], {
+                icon,
+                draggable: true,
+                title: 'Road Block',
+                zIndexOffset: 500,
+            }).addTo(map);
+
+            marker.on('dragend', () => {
+                const pos = marker.getLatLng();
+                onUpdateBlockPosition(block.id, pos.lat, pos.lng);
+            });
+
+            marker.bindPopup(`
+                <div style="text-align:center">
+                    <strong style="color:#ef4444">🚧 Road Block</strong><br>
+                    <span style="font-size:11px;color:#94a3b8">
+                        ${block.lat.toFixed(5)}, ${block.lng.toFixed(5)}
+                    </span><br>
+                    <button onclick="window.__removeBlock('${block.id}')" 
+                        style="margin-top:6px;padding:4px 10px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;">
+                        Remove
+                    </button>
+                </div>
+            `);
+
+            blockMarkersRef.current.push(marker);
+        });
+
+        // Expose remove function globally for popup buttons
+        (window as any).__removeBlock = (id: string) => {
+            onRemoveBlock(id);
+        };
+    }, [roadBlocks, onRemoveBlock, onUpdateBlockPosition]);
+
+    // Render congestion zone circles
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        // Clear old circles
+        congestionLayersRef.current.forEach((c) => map.removeLayer(c));
+        congestionLayersRef.current = [];
+
+        congestionZones.forEach((zone) => {
+            const color = getIntensityColor(zone.intensity);
+
+            const circle = L.circle([zone.lat, zone.lng], {
+                radius: zone.radiusKm * 1000,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.15 + (zone.intensity - 1.5) * 0.04,
+                weight: 2,
+                dashArray: '6 4',
+                className: 'congestion-zone-circle',
+            }).addTo(map);
+
+            circle.bindPopup(`
+                <div style="text-align:center">
+                    <strong style="color:${color}">🔴 Congestion Zone</strong><br>
+                    <span style="font-size:11px;color:#94a3b8">
+                        Radius: ${zone.radiusKm} km · Intensity: ${zone.intensity.toFixed(1)}×
+                    </span><br>
+                    <button onclick="window.__removeCongestion('${zone.id}')" 
+                        style="margin-top:6px;padding:4px 10px;background:${color};color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;">
+                        Remove
+                    </button>
+                </div>
+            `);
+
+            // Enable dragging via a center marker
+            const centerHtml = `
+                <div class="congestion-center-marker">
+                    <div class="congestion-center-dot" style="background:${color}"></div>
+                </div>
+            `;
+
+            const centerIcon = L.divIcon({
+                html: centerHtml,
+                className: '',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+            });
+
+            const centerMarker = L.marker([zone.lat, zone.lng], {
+                icon: centerIcon,
+                draggable: true,
+                title: `Congestion Zone (${zone.intensity.toFixed(1)}×)`,
+                zIndexOffset: 400,
+            }).addTo(map);
+
+            centerMarker.on('dragend', () => {
+                const pos = centerMarker.getLatLng();
+                onUpdateCongestionPosition(zone.id, pos.lat, pos.lng);
+            });
+
+            congestionLayersRef.current.push(circle);
+            // Also track center markers for cleanup — store on the circle
+            (circle as any)._centerMarker = centerMarker;
+        });
+
+        // Expose remove function globally for popup buttons
+        (window as any).__removeCongestion = (id: string) => {
+            onRemoveCongestion(id);
+        };
+
+        return () => {
+            // Cleanup center markers
+            congestionLayersRef.current.forEach((c) => {
+                const cm = (c as any)._centerMarker;
+                if (cm && map) map.removeLayer(cm);
+            });
+        };
+    }, [congestionZones, onRemoveCongestion, onUpdateCongestionPosition]);
 
     // Draw route visualization
     useEffect(() => {
@@ -295,6 +461,20 @@ export default function MapView({
         map.getContainer().style.background = newDark ? '#0a0e1a' : '#f2efe9';
     }, [isDark]);
 
+    // Cursor change based on active mode
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        const container = map.getContainer();
+        if (blockModeActive) {
+            container.style.cursor = 'crosshair';
+        } else if (congestionModeActive) {
+            container.style.cursor = 'crosshair';
+        } else {
+            container.style.cursor = '';
+        }
+    }, [blockModeActive, congestionModeActive]);
+
     return (
         <>
             <div id="map" className="map-container" ref={containerRef}></div>
@@ -306,6 +486,28 @@ export default function MapView({
             >
                 <i className={`fas fa-${isDark ? 'sun' : 'moon'}`}></i>
             </button>
+
+            {/* Active mode indicator on map */}
+            {(blockModeActive || congestionModeActive) && (
+                <div className="map-mode-indicator">
+                    <div className={`mode-indicator-badge ${blockModeActive ? 'block-mode' : 'congestion-mode'}`}>
+                        <span className="mode-indicator-icon">
+                            {blockModeActive ? '🚧' : '🔴'}
+                        </span>
+                        <span className="mode-indicator-text">
+                            {blockModeActive ? 'Placing Road Blocks' : 'Placing Congestion Zones'}
+                        </span>
+                    </div>
+                </div>
+            )}
         </>
     );
+}
+
+function getIntensityColor(intensity: number): string {
+    // Gradient from orange to deep red based on intensity
+    if (intensity <= 2.0) return '#f59e0b';
+    if (intensity <= 3.0) return '#ef4444';
+    if (intensity <= 4.0) return '#dc2626';
+    return '#991b1b';
 }

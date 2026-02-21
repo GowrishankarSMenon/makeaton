@@ -54,10 +54,18 @@ export async function POST(request: NextRequest) {
     const matrixTimeMs =
       Math.round((performance.now() - startMatrix) * 100) / 100;
 
+    // Log restrictions for debugging
+    const rb = (params as any).roadBlocks;
+    const cz = (params as any).congestionZones;
+    if ((rb && rb.length > 0) || (cz && cz.length > 0)) {
+      console.log(`[Solve] Restrictions received: ${rb?.length || 0} road blocks, ${cz?.length || 0} congestion zones`);
+    }
+
     const { weightedDistances } = applyModifiers(
       distances,
       durations,
-      params
+      params,
+      locations
     );
 
     const startSolve = performance.now();
@@ -98,7 +106,7 @@ export async function POST(request: NextRequest) {
                   return reject(
                     new Error(
                       errorOutput ||
-                        `Held-Karp (C++) exited with code ${code}`
+                      `Held-Karp (C++) exited with code ${code}`
                     )
                   );
                 }
@@ -215,17 +223,17 @@ export async function POST(request: NextRequest) {
     const hkResult = result.heldKarp as { tour: number[] } | undefined;
     const nnResult = result.nearestNeighbor as { tour: number[] } | undefined;
 
-if (solution) {
-  response.routeCoords = solution.tour.map((i: number) => locations[i]);
-}
+    if (solution) {
+      response.routeCoords = solution.tour.map((i: number) => locations[i]);
+    }
 
-if (hkResult && hkResult.tour) {
-  response.heldKarpRouteCoords = hkResult.tour.map((i: number) => locations[i]);
-}
+    if (hkResult && hkResult.tour) {
+      response.heldKarpRouteCoords = hkResult.tour.map((i: number) => locations[i]);
+    }
 
-if (nnResult && nnResult.tour) {
-  response.nnRouteCoords = nnResult.tour.map((i: number) => locations[i]);
-}
+    if (nnResult && nnResult.tour) {
+      response.nnRouteCoords = nnResult.tour.map((i: number) => locations[i]);
+    }
 
     return NextResponse.json(response);
   } catch (err: unknown) {

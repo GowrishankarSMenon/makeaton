@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useLocations } from '@/hooks/useLocations';
 import { useParams } from '@/hooks/useParams';
 import { useSolver } from '@/hooks/useSolver';
+import { useRestrictions } from '@/hooks/useRestrictions';
 import { useToast, ToastContainer } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import QuantumOverlay from '@/components/QuantumOverlay';
@@ -22,6 +23,18 @@ export default function Home() {
         useParams();
     const { isLoading, result, solve, clearResult } = useSolver();
     const { toasts, showToast } = useToast();
+    const {
+        roadBlocks,
+        congestionZones,
+        addBlock,
+        removeBlock,
+        addCongestion,
+        removeCongestion,
+        updateCongestion,
+        updateBlockPosition,
+        updateCongestionPosition,
+        clearRestrictions,
+    } = useRestrictions();
 
     const [algorithm, setAlgorithm] = useState('held-karp');
     const [solverEngine, setSolverEngine] = useState<'ts' | 'cpp'>('ts');
@@ -35,6 +48,35 @@ export default function Home() {
     const [showRoad, setShowRoad] = useState(false);
     const [roadRouteShown, setRoadRouteShown] = useState(false);
     const [roadRouteLoading, setRoadRouteLoading] = useState(false);
+
+    // Restriction placement modes
+    const [blockModeActive, setBlockModeActive] = useState(false);
+    const [congestionModeActive, setCongestionModeActive] = useState(false);
+
+    const handleToggleBlockMode = useCallback((active: boolean) => {
+        setBlockModeActive(active);
+        if (active) setCongestionModeActive(false);
+    }, []);
+
+    const handleToggleCongestionMode = useCallback((active: boolean) => {
+        setCongestionModeActive(active);
+        if (active) setBlockModeActive(false);
+    }, []);
+
+    const handleMapClick = useCallback(
+        (lat: number, lng: number) => {
+            if (blockModeActive) {
+                addBlock(lat, lng);
+                showToast('Road block placed', 'info');
+            } else if (congestionModeActive) {
+                addCongestion(lat, lng);
+                showToast('Congestion zone placed', 'info');
+            } else {
+                addLocation(lat, lng);
+            }
+        },
+        [blockModeActive, congestionModeActive, addBlock, addCongestion, addLocation, showToast]
+    );
 
     const handleSolve = useCallback(async () => {
         if (locations.length < 2) {
@@ -60,6 +102,12 @@ export default function Home() {
             await delay(400);
             setOverlayStatus('Building distance matrix via OSRM...');
             await delay(300);
+
+            if (roadBlocks.length > 0 || congestionZones.length > 0) {
+                setOverlayStatus('Applying logistical restrictions...');
+                await delay(300);
+            }
+
             setOverlayStatus('Encoding binary variables into qubit states...');
             await delay(300);
 
@@ -74,7 +122,13 @@ export default function Home() {
             setOverlayStatus(statusMsg);
 
             const solveParams = getParamsForSolve(locations.map((l) => l.priority));
-            const data = await solve(locations, algorithm, solveParams, solverEngine);
+            // Attach restrictions to params
+            const paramsWithRestrictions = {
+                ...solveParams,
+                roadBlocks: roadBlocks.length > 0 ? roadBlocks : undefined,
+                congestionZones: congestionZones.length > 0 ? congestionZones : undefined,
+            };
+            const data = await solve(locations, algorithm, paramsWithRestrictions, solverEngine);
             setOverlayStatus('Collapsing quantum state to optimal route...');
             await delay(400);
             setOverlayVisible(false);
@@ -91,7 +145,7 @@ export default function Home() {
             const message = err instanceof Error ? err.message : 'Unknown error';
             showToast(message, 'error');
         }
-    }, [locations, algorithm, getParamsForSolve, solve, showToast]);
+    }, [locations, algorithm, getParamsForSolve, solve, showToast, solverEngine, roadBlocks, congestionZones]);
 
     const handleShowRoadRoute = useCallback(() => {
         setRoadRouteLoading(true);
@@ -119,11 +173,14 @@ export default function Home() {
     const handleClearAll = useCallback(() => {
         clearAll();
         clearResult();
+        clearRestrictions();
         setShowRoadRouteBtn(false);
         setShowRoad(false);
         setRoadRouteShown(false);
-        showToast('All locations cleared', 'info');
-    }, [clearAll, clearResult, showToast]);
+        setBlockModeActive(false);
+        setCongestionModeActive(false);
+        showToast('All locations and restrictions cleared', 'info');
+    }, [clearAll, clearResult, clearRestrictions, showToast]);
 
     // Mobile sidebar toggle
     const toggleMobileSidebar = () => {
@@ -158,6 +215,17 @@ export default function Home() {
                     roadRouteShown={roadRouteShown}
                     roadRouteLoading={roadRouteLoading}
                     onShowRoadRoute={handleShowRoadRoute}
+                    // Restrictions
+                    roadBlocks={roadBlocks}
+                    congestionZones={congestionZones}
+                    blockModeActive={blockModeActive}
+                    congestionModeActive={congestionModeActive}
+                    onToggleBlockMode={handleToggleBlockMode}
+                    onToggleCongestionMode={handleToggleCongestionMode}
+                    onRemoveBlock={removeBlock}
+                    onRemoveCongestion={removeCongestion}
+                    onUpdateCongestion={updateCongestion}
+                    onClearRestrictions={clearRestrictions}
                 />
 
                 <button id="mobile-sidebar-toggle" className="mobile-sidebar-toggle" onClick={toggleMobileSidebar}>
@@ -168,10 +236,19 @@ export default function Home() {
                     locations={locations}
                     solveResult={result}
                     showRoad={showRoad}
-                    onLocationAdd={addLocation}
+                    onLocationAdd={handleMapClick}
                     onLocationRemove={removeLocation}
                     onRoadRouteDrawn={handleRoadRouteDrawn}
                     onRoadRouteError={handleRoadRouteError}
+                    // Restrictions
+                    roadBlocks={roadBlocks}
+                    congestionZones={congestionZones}
+                    blockModeActive={blockModeActive}
+                    congestionModeActive={congestionModeActive}
+                    onRemoveBlock={removeBlock}
+                    onRemoveCongestion={removeCongestion}
+                    onUpdateBlockPosition={updateBlockPosition}
+                    onUpdateCongestionPosition={updateCongestionPosition}
                 />
             </div>
         </>
