@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { MapLocation } from '@/hooks/useLocations';
 import { SolveResult } from '@/hooks/useSolver';
 import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
-import { getRoadRoute } from '@/lib/visualization';
+import { getRoadRoute, RoadBlockForRoute } from '@/lib/visualization';
 
 const TILE_LAYERS = {
     dark: {
@@ -31,6 +31,7 @@ interface MapViewProps {
     locations: MapLocation[];
     solveResult: SolveResult | null;
     showRoad: boolean;
+    showPolygon: boolean;
     onLocationAdd: (lat: number, lng: number) => void;
     onLocationRemove: (index: number) => void;
     onRoadRouteDrawn: () => void;
@@ -50,6 +51,7 @@ export default function MapView({
     locations,
     solveResult,
     showRoad,
+    showPolygon,
     onLocationAdd,
     onLocationRemove,
     onRoadRouteDrawn,
@@ -300,19 +302,25 @@ export default function MapView({
         };
     }, [congestionZones, onRemoveCongestion, onUpdateCongestionPosition]);
 
-    // Draw route visualization
+    // Clear routes when solveResult changes (new solve started)
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
+        routeLayersRef.current.forEach((l) => map.removeLayer(l));
+        routeLayersRef.current = [];
+        roadDrawnForResultRef.current = null;
+    }, [solveResult]);
 
-        // Clear old routes
+    // Draw polygon (straight-line) fallback when showPolygon is set
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !solveResult || !showPolygon) return;
+
+        // Clear old routes (road or previous)
         routeLayersRef.current.forEach((l) => map.removeLayer(l));
         routeLayersRef.current = [];
         roadDrawnForResultRef.current = null;
 
-        if (!solveResult) return;
-
-        // Draw polygon (straight-line) route
         if (solveResult.algorithm === 'compare') {
             if (solveResult.heldKarpRouteCoords && solveResult.heldKarpRouteCoords.length > 0) {
                 const latlngs = solveResult.heldKarpRouteCoords.map(
@@ -338,7 +346,7 @@ export default function MapView({
             drawPolylineGroup(map, latlngs, ROUTE_COLORS.primary, 4, '12 8');
             fitToRoute(map, latlngs);
         }
-    }, [solveResult]);
+    }, [solveResult, showPolygon]);
 
     // Draw road route when showRoad toggles
     useEffect(() => {
@@ -355,26 +363,33 @@ export default function MapView({
                 routeLayersRef.current.forEach((l) => map.removeLayer(l));
                 routeLayersRef.current = [];
 
+                // Convert roadBlocks to the format expected by getRoadRoute
+                const blocks: RoadBlockForRoute[] = roadBlocks.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    id: b.id,
+                }));
+
                 if (solveResult.algorithm === 'compare') {
                     const promises: Promise<void>[] = [];
 
                     if (solveResult.heldKarpRouteCoords && solveResult.heldKarpRouteCoords.length > 0) {
                         promises.push(
-                            getRoadRoute(solveResult.heldKarpRouteCoords).then((latlngs) => {
+                            getRoadRoute(solveResult.heldKarpRouteCoords, blocks).then((latlngs) => {
                                 drawPolylineGroup(map, latlngs, ROUTE_COLORS.heldKarp, 5);
                             })
                         );
                     }
                     if (solveResult.nnRouteCoords && solveResult.nnRouteCoords.length > 0) {
                         promises.push(
-                            getRoadRoute(solveResult.nnRouteCoords).then((latlngs) => {
+                            getRoadRoute(solveResult.nnRouteCoords, blocks).then((latlngs) => {
                                 drawPolylineGroup(map, latlngs, ROUTE_COLORS.nearestNeighbor, 3, '10 8');
                             })
                         );
                     }
                     await Promise.all(promises);
                 } else if (solveResult.routeCoords && solveResult.routeCoords.length >= 2) {
-                    const roadLatlngs = await getRoadRoute(solveResult.routeCoords);
+                    const roadLatlngs = await getRoadRoute(solveResult.routeCoords, blocks);
                     drawPolylineGroup(map, roadLatlngs, ROUTE_COLORS.primary, 4);
                     fitToRoute(map, roadLatlngs);
                 }
@@ -388,7 +403,7 @@ export default function MapView({
         };
 
         drawRoad();
-    }, [showRoad, solveResult, onRoadRouteDrawn, onRoadRouteError]);
+    }, [showRoad, solveResult, roadBlocks, onRoadRouteDrawn, onRoadRouteError]);
 
     const drawPolylineGroup = useCallback(
         (
