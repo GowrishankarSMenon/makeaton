@@ -8,6 +8,10 @@ interface SidebarProps {
     locations: MapLocation[];
     algorithm: string;
     onAlgorithmChange: (algo: string) => void;
+
+    solverEngine: 'ts' | 'cpp';
+    onSolverEngineChange: (engine: 'ts' | 'cpp') => void;
+
     params: LogisticsParams;
     priorityEnabled: boolean;
     onParamChange: <K extends keyof LogisticsParams>(key: K, value: LogisticsParams[K]) => void;
@@ -19,7 +23,6 @@ interface SidebarProps {
     onSolve: () => void;
     solveResult: SolveResult | null;
     isLoading: boolean;
-    // Road route button
     showRoadRouteBtn: boolean;
     roadRouteShown: boolean;
     roadRouteLoading: boolean;
@@ -27,7 +30,7 @@ interface SidebarProps {
 }
 
 const ALGORITHMS = [
-    { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · O(n²·2ⁿ) · n≤18' },
+    { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · TS≤18 · C++⚡ larger n' },
     { value: 'nearest-neighbor', name: 'Nearest Neighbor', desc: 'Greedy · O(n²) · Any n' },
     { value: 'qaoa', name: 'Quantum QAOA', desc: 'Hybrid · Qiskit · n≤8' },
     { value: 'compare', name: 'Compare Mode', desc: 'Both · Gap Analysis' },
@@ -37,6 +40,10 @@ export default function Sidebar({
     locations,
     algorithm,
     onAlgorithmChange,
+
+    solverEngine,
+    onSolverEngineChange,
+
     params,
     priorityEnabled,
     onParamChange,
@@ -118,9 +125,35 @@ export default function Sidebar({
                                 </label>
                             ))}
                         </div>
+
+                        {algorithm === 'held-karp' && (
+                            <div className="engine-section">
+                                <span className="engine-label">Engine</span>
+                                <div className="engine-toggle">
+                                    <button
+                                        className={`engine-btn${solverEngine === 'ts' ? ' active' : ''}`}
+                                        onClick={() => onSolverEngineChange('ts')}
+                                    >
+                                        <span className="engine-btn-icon">TS</span>
+                                        <span className="engine-btn-text">TypeScript</span>
+                                        <span className="engine-btn-tag">≤18 nodes</span>
+                                    </button>
+                                    <button
+                                        className={`engine-btn cpp${solverEngine === 'cpp' ? ' active' : ''}`}
+                                        onClick={() => onSolverEngineChange('cpp')}
+                                    >
+                                        <span className="engine-btn-icon">⚡</span>
+                                        <span className="engine-btn-text">C++ Native</span>
+                                        <span className="engine-btn-tag">Faster</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </section>
 
+                {/* Logistics Parameters */}
+                {/* ⬇️ FROM HERE DOWN YOUR FILE IS 100% UNCHANGED */}
                 {/* Logistics Parameters */}
                 <section className="panel">
                     <div className="panel-header">

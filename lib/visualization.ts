@@ -14,7 +14,7 @@ export async function fetchRoadGeometry(
     from: Location,
     to: Location
 ): Promise<[number, number][]> {
-    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+const url = `/api/osrm/route?from=${from.lng},${from.lat}&to=${to.lng},${to.lat}`;
     try {
         const response = await fetch(url);
         const data = await response.json();

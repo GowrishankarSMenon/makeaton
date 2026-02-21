@@ -444,6 +444,91 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* ── Engine Toggle ───────────────────────────────────────── */
+.engine-section {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.engine-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.engine-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.engine-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  color: var(--text-secondary);
+}
+
+.engine-btn:hover {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.engine-btn.active {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.15);
+  color: var(--text-primary);
+}
+
+.engine-btn.cpp.active {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.10);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.12);
+}
+
+.engine-btn-icon {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.engine-btn.active .engine-btn-icon {
+  color: var(--accent-1);
+}
+
+.engine-btn.cpp.active .engine-btn-icon {
+  color: #f59e0b;
+}
+
+.engine-btn-text {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.engine-btn-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.engine-btn.active .engine-btn-tag {
+  color: var(--text-secondary);
+}
+
 /* ── Parameters ─────────────────────────────────────────── */
 .params-body {
   display: flex;
