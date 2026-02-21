@@ -77,7 +77,10 @@ export async function POST(request: NextRequest) {
               '\n';
 
             const solution = await new Promise((resolve, reject) => {
-              const proc = spawn('./held-karp-cpp/heldkarp');
+              const bin = process.platform === 'win32'
+                ? './held-karp-cpp/heldkarp.exe'
+                : './held-karp-cpp/heldkarp';
+              const proc = spawn(bin);
 
               let output = '';
               let errorOutput = '';
