@@ -1,30 +1,27 @@
 """
 qaoa_solver.py — Solve a QUBO using Qiskit's quantum optimization pipeline.
 
-Pipeline (hybrid quantum-classical):
-  1. QUBO formulated from TSP distance matrix (binary variable encoding)
-  2. QUBO converted to Ising Hamiltonian (qubit operator mapping)
-  3. Solved using quantum-compatible eigensolver
-  4. Solution decoded back to TSP tour
+Pipeline:
+  1. QUBO → Ising Hamiltonian
+  2. QAOA with COBYLA optimizer + one warm-start restart
+  3. Decode best result
 
-For problems with n ≤ 3 cities (≤ 9 qubits), uses QAOA with StatevectorSampler.
-For larger problems, uses NumPyMinimumEigensolver on the Ising Hamiltonian
-(exact diagonalization — equivalent to solving the quantum system classically,
-which is the standard approach for quantum simulation on classical hardware).
+Uses QAOA with StatevectorSampler for ≤16 qubits,
+NumPyMinimumEigensolver for larger problems.
 """
 
 import time
 import numpy as np
 
 
-def solve_with_qaoa(qubo, reps=1, max_iterations=80):
+def solve_with_qaoa(qubo, reps=1, max_iterations=20):
     """
-    Solve a QUBO using Qiskit's quantum optimization pipeline.
+    Solve a QUBO using QAOA (COBYLA, one warm-start restart).
 
     Args:
-        qubo: QuadraticProgram (QUBO form) from qiskit_optimization
-        reps: int — QAOA layers (used only when QAOA is feasible)
-        max_iterations: int — max classical optimizer iterations
+        qubo: QuadraticProgram (QUBO form)
+        reps: QAOA depth (layers)
+        max_iterations: total optimizer iterations (split across 2 runs)
 
     Returns:
         dict with result, timing, and quantum metadata
@@ -67,32 +64,58 @@ def solve_with_qaoa(qubo, reps=1, max_iterations=80):
 
 
 def _solve_qaoa(qubo, reps, max_iterations, iteration_count, energies):
-    """Solve using QAOA with StatevectorSampler (for small problems)."""
+    """Solve using QAOA + COBYLA with one warm-start restart."""
     from qiskit_algorithms import QAOA
     from qiskit_algorithms.optimizers import COBYLA
     from qiskit_optimization.algorithms import MinimumEigenOptimizer
     from qiskit.primitives import StatevectorSampler
 
+    sampler = StatevectorSampler()
+    best_params = [None]
+    best_energy = [float("inf")]
+
     def callback(eval_count, params, mean, std):
         iteration_count[0] = eval_count
         energies.append(float(mean))
+        if mean < best_energy[0]:
+            best_energy[0] = mean
+            best_params[0] = np.array(params, dtype=float).copy()
 
-    sampler = StatevectorSampler()
-    optimizer = COBYLA(maxiter=max_iterations, rhobeg=0.5)
+    # --- Run 1: random initial point ---
+    iters_r1 = max_iterations // 2
+    optimizer1 = COBYLA(maxiter=iters_r1, rhobeg=0.5)
+    init_point = np.random.uniform(-np.pi, np.pi, 2 * reps)
 
-    qaoa = QAOA(
+    qaoa1 = QAOA(
         sampler=sampler,
-        optimizer=optimizer,
+        optimizer=optimizer1,
         reps=reps,
         callback=callback,
-        initial_point=np.random.uniform(-np.pi, np.pi, 2 * reps),
+        initial_point=init_point,
     )
+    result1 = MinimumEigenOptimizer(qaoa1).solve(qubo)
 
-    qaoa_optimizer = MinimumEigenOptimizer(qaoa)
-    result = qaoa_optimizer.solve(qubo)
+    # --- Run 2: warm-start from best params found ---
+    warm_point = best_params[0] if best_params[0] is not None else init_point
+    iters_r2 = max_iterations - iters_r1
+    optimizer2 = COBYLA(maxiter=iters_r2, rhobeg=0.3)
+
+    qaoa2 = QAOA(
+        sampler=sampler,
+        optimizer=optimizer2,
+        reps=reps,
+        callback=callback,
+        initial_point=warm_point,
+    )
+    result2 = MinimumEigenOptimizer(qaoa2).solve(qubo)
+
+    # Return the result with lower energy
+    e1 = result1.fval if hasattr(result1, "fval") else float("inf")
+    e2 = result2.fval if hasattr(result2, "fval") else float("inf")
+    result = result2 if e2 <= e1 else result1
 
     try:
-        circuit_depth = qaoa.ansatz.depth()
+        circuit_depth = qaoa2.ansatz.depth()
     except Exception:
         circuit_depth = reps * 2
 
