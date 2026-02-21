@@ -1336,3 +1336,458 @@ body {
     stroke-dashoffset: -18;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Road Restrictions — Premium Panel & Map Overlays
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Restrictions Panel ────────────────────────────────── */
+.restrictions-panel {
+  border-color: rgba(239, 68, 68, 0.2) !important;
+  background: rgba(239, 68, 68, 0.03) !important;
+}
+
+.restrictions-panel:hover {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+.restrictions-panel .panel-header h2 i {
+  color: #f87171;
+}
+
+.restriction-badge {
+  background: linear-gradient(135deg, #ef4444, #f59e0b) !important;
+}
+
+.restrictions-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.restriction-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.restriction-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.restriction-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.restriction-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.restriction-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.restriction-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.restriction-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.2), transparent);
+  margin: 4px 0;
+}
+
+/* ── Mode Toggle ───────────────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mode-toggle input {
+  display: none;
+}
+
+.mode-toggle-slider {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.mode-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mode-toggle.active .mode-toggle-slider {
+  background: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+.mode-toggle.congestion.active .mode-toggle-slider {
+  background: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.mode-toggle input:checked + .mode-toggle-slider::before {
+  transform: translateX(16px);
+}
+
+.mode-toggle-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.mode-toggle.active .mode-toggle-label {
+  color: #f87171;
+}
+
+.mode-toggle.congestion.active .mode-toggle-label {
+  color: #fbbf24;
+}
+
+/* ── Restriction Hint ──────────────────────────────────── */
+.restriction-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(239, 68, 68, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: fadeInHint 0.3s ease;
+}
+
+.restriction-hint i {
+  color: #f87171;
+  animation: crosshairPulse 1.5s ease-in-out infinite;
+}
+
+.congestion-hint {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.congestion-hint i {
+  color: #fbbf24;
+}
+
+@keyframes fadeInHint {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes crosshairPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Restriction List ──────────────────────────────────── */
+.restriction-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.restriction-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.restriction-item:hover {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.congestion-item:hover {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.restriction-item-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.restriction-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.restriction-item-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.restriction-item-coords {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.restriction-remove {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.restriction-remove:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.restriction-clear {
+  margin-top: 4px;
+}
+
+/* ── Zone Controls (sliders) ───────────────────────────── */
+.zone-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.zone-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zone-control-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.zone-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.zone-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  cursor: pointer;
+  box-shadow: 0 1px 6px rgba(245, 158, 11, 0.4);
+}
+
+.zone-slider.intensity::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #ef4444, #991b1b);
+  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.4);
+}
+
+.zone-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  cursor: pointer;
+  border: none;
+}
+
+.zone-control-value {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  min-width: 42px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── Map Markers: Road Block ───────────────────────────── */
+.block-marker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.block-marker-inner {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.5);
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  animation: blockBounce 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.block-marker-pulse {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 2px solid rgba(239, 68, 68, 0.4);
+  animation: blockPulse 2s ease-in-out infinite;
+}
+
+@keyframes blockBounce {
+  0% { transform: scale(0) rotate(-10deg); }
+  60% { transform: scale(1.15) rotate(2deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes blockPulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 0; transform: scale(1.5); }
+}
+
+/* ── Map Markers: Congestion Zone Center ───────────────── */
+.congestion-center-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.congestion-center-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 10px currentColor;
+  cursor: grab;
+}
+
+.congestion-center-dot:active {
+  cursor: grabbing;
+}
+
+/* ── Congestion zone circle pulse ──────────────────────── */
+.congestion-zone-circle {
+  animation: congestionPulse 3s ease-in-out infinite;
+}
+
+@keyframes congestionPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Map Mode Indicator ────────────────────────────────── */
+.map-mode-indicator {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  pointer-events: none;
+}
+
+.mode-indicator-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: indicatorSlideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mode-indicator-badge.block-mode {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.85), rgba(220, 38, 38, 0.85));
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mode-indicator-badge.congestion-mode {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.85), rgba(234, 88, 12, 0.85));
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mode-indicator-icon {
+  font-size: 16px;
+}
+
+.mode-indicator-text {
+  letter-spacing: 0.02em;
+}
+
+@keyframes indicatorSlideDown {
+  from { opacity: 0; transform: translateX(-50%) translateY(-16px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

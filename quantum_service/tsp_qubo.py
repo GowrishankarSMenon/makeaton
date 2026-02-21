@@ -1,44 +1,32 @@
 """
 tsp_qubo.py — Build a QUBO formulation of the Travelling Salesman Problem.
 
-Binary encoding:
+Reduced encoding (default):
+  Fix start city at position 0 to reduce qubit count from n² to (n-1)².
+  x_{i,p} = 1  means "city i is visited at position p" (excluding start city).
+
+Full encoding (fallback for n ≤ 2):
   x_{i,p} = 1  means "city i is visited at position p in the tour"
-  Total binary variables: n² (for n cities)
-
-This directly maps to qubits: each x_{i,p} is one qubit.
-
-Objective:
-  Minimize Σ_{p=0}^{n-1} Σ_{i,j} dist[i][j] · x_{i,p} · x_{j,(p+1) mod n}
-
-Constraints (enforced via penalty terms):
-  1. Each city visited exactly once:  Σ_p x_{i,p} = 1  for all i
-  2. Each position has exactly one city:  Σ_i x_{i,p} = 1  for all p
+  Total binary variables: n²
 """
 
 import numpy as np
+from qiskit_optimization import QuadraticProgram
 from qiskit_optimization.applications import Tsp
 from qiskit_optimization.converters import QuadraticProgramToQubo
 
 
-def build_tsp_qubo(distance_matrix):
+def build_tsp_qubo(distance_matrix, start_node=0):
     """
-    Build a QUBO for the TSP from a distance matrix.
-
-    Uses qiskit_optimization's Tsp application class which:
-    1. Creates binary variables x_{i,p} for each (city, position) pair
-    2. Adds the distance objective
-    3. Adds equality constraints (each city once, each position once)
+    Build a reduced QUBO for the TSP, fixing start_node at position 0.
+    Reduces qubit count from n² to (n-1)².
 
     Args:
         distance_matrix: list[list[float]] — N×N distance matrix
+        start_node: int — city fixed at position 0 (default 0)
 
     Returns:
-        dict with:
-            - qubo: the QUBO QuadraticProgram object
-            - quadratic_program: the original constrained QP
-            - num_cities: n
-            - num_qubits: n² (number of binary variables / qubits)
-            - tsp_instance: the Tsp application object (for decoding)
+        dict with qubo, metadata, and decoding info
     """
     n = len(distance_matrix)
     dist = np.array(distance_matrix, dtype=float)
@@ -50,13 +38,84 @@ def build_tsp_qubo(distance_matrix):
     else:
         norm_dist = dist
 
-    # Create TSP instance from adjacency matrix
+    if n <= 2:
+        return _build_full_qubo(distance_matrix)
+
+    # Cities to optimise (excluding the fixed start city)
+    cities = [i for i in range(n) if i != start_node]
+    m = len(cities)  # n-1
+
+    qp = QuadraticProgram()
+
+    # Binary variables: x_{city}_{position} for reduced grid (m × m)
+    var_names = {}
+    for i in cities:
+        for p in range(m):
+            name = f"x_{i}_{p}"
+            qp.binary_var(name)
+            var_names[(i, p)] = name
+
+    # ---- Objective ----
+    linear = {}
+    quadratic = {}
+
+    # start_node → city at position 0
+    for i in cities:
+        v = var_names[(i, 0)]
+        linear[v] = linear.get(v, 0) + norm_dist[start_node][i]
+
+    # city at position m-1 → start_node
+    for i in cities:
+        v = var_names[(i, m - 1)]
+        linear[v] = linear.get(v, 0) + norm_dist[i][start_node]
+
+    # consecutive positions 0 … m-2
+    for p in range(m - 1):
+        for i in cities:
+            for j in cities:
+                if i != j:
+                    key = (var_names[(i, p)], var_names[(j, p + 1)])
+                    quadratic[key] = quadratic.get(key, 0) + norm_dist[i][j]
+
+    qp.minimize(linear=linear, quadratic=quadratic)
+
+    # ---- Constraints ----
+    for i in cities:
+        coeffs = {var_names[(i, p)]: 1 for p in range(m)}
+        qp.linear_constraint(linear=coeffs, sense="==", rhs=1, name=f"city_{i}")
+
+    for p in range(m):
+        coeffs = {var_names[(i, p)]: 1 for i in cities}
+        qp.linear_constraint(linear=coeffs, sense="==", rhs=1, name=f"pos_{p}")
+
+    converter = QuadraticProgramToQubo()
+    qubo = converter.convert(qp)
+
+    return {
+        "qubo": qubo,
+        "quadratic_program": qp,
+        "num_cities": n,
+        "num_qubits": qubo.get_num_vars(),
+        "converter": converter,
+        "max_dist": max_dist,
+        "start_node": start_node,
+        "cities": cities,
+        "reduced": True,
+    }
+
+
+def _build_full_qubo(distance_matrix):
+    """Fallback full n² encoding for trivial cases (n ≤ 2)."""
+    n = len(distance_matrix)
+    dist = np.array(distance_matrix, dtype=float)
+    max_dist = dist.max()
+    if max_dist > 0:
+        norm_dist = dist / max_dist
+    else:
+        norm_dist = dist
+
     tsp = Tsp(norm_dist)
-
-    # Get the QuadraticProgram formulation (with constraints)
     qp = tsp.to_quadratic_program()
-
-    # Convert to QUBO (unconstrained) by folding constraints into penalties
     converter = QuadraticProgramToQubo()
     qubo = converter.convert(qp)
 
@@ -68,133 +127,147 @@ def build_tsp_qubo(distance_matrix):
         "tsp_instance": tsp,
         "converter": converter,
         "max_dist": max_dist,
+        "reduced": False,
     }
 
 
 def decode_solution(result, tsp_data):
-    """
-    Decode a QAOA/optimizer result back into a TSP tour.
+    """Decode a QAOA result back into a TSP tour."""
+    if tsp_data.get("reduced", False):
+        return _decode_reduced(result, tsp_data)
+    return _decode_full(result, tsp_data)
 
-    For noisy IBM hardware results, the raw bitstring almost never forms a
-    valid tour (cities repeated, others missing). This decoder:
-      1. Reads the n×n assignment matrix from the quantum result
-      2. Uses it as a "preference score" for city→position mapping
-      3. Greedily assigns cities to positions (highest preference first)
-      4. Fills any remaining gaps → always produces a valid, feasible tour
 
-    Args:
-        result: MinimumEigenOptimizer result or similar (needs .x array)
-        tsp_data: dict returned by build_tsp_qubo
-
-    Returns:
-        dict with tour, distance, feasibility info
-    """
+def _decode_reduced(result, tsp_data):
+    """Decode solution from reduced (fixed start) QUBO with tour repair."""
     n = tsp_data["num_cities"]
+    start_node = tsp_data["start_node"]
+    cities = tsp_data["cities"]
+    m = len(cities)
 
     try:
         x = result.x
-        x_matrix = np.array(x[:n * n], dtype=float).reshape(n, n)
+        x_matrix = np.array(x[: m * m], dtype=float).reshape(m, m)
 
-        # --- Attempt 1: naive argmax (works for clean simulator results) ---
-        naive_tour = []
-        for p in range(n):
-            naive_tour.append(int(np.argmax(x_matrix[:, p])))
-        naive_feasible = len(set(naive_tour)) == n
+        # Naive argmax decode
+        tour = [start_node]
+        for p in range(m):
+            city_idx = int(np.argmax(x_matrix[:, p]))
+            tour.append(cities[city_idx])
+        tour.append(start_node)
 
-        if naive_feasible:
-            # Perfect assignment — use directly
-            tour = naive_tour + [naive_tour[0]]
+        cities_visited = set(tour[:-1])
+        is_feasible = len(cities_visited) == n and len(tour) - 1 == n
+
+        if not is_feasible:
+            # Greedy repair: use quantum scores as preferences
+            tour = _repair_reduced_tour(x_matrix, start_node, cities, n, tsp_data)
             is_feasible = True
-        else:
-            # --- Attempt 2: greedy repair from quantum preferences ---
-            # Treat x_matrix[i, p] as "score" for assigning city i to position p.
-            # Pick highest-scoring (city, position) pairs without conflicts.
-            tour = _repair_tour_from_matrix(x_matrix, n, tsp_data)
-            is_feasible = True  # repair always produces a valid tour
 
     except Exception:
-        # Last resort fallback
-        tour = list(range(n)) + [0]
+        tour = [start_node] + cities + [start_node]
         is_feasible = False
-
-    # Compute actual distance using original (unnormalized) matrix
-    distance = 0
-    if "original_distances" in tsp_data:
-        dist_mat = tsp_data["original_distances"]
-        for i in range(len(tour) - 1):
-            distance += dist_mat[tour[i]][tour[i + 1]]
 
     return {
         "tour": tour,
-        "distance": distance,
         "is_feasible": is_feasible,
         "energy": float(result.fval) if hasattr(result, "fval") else None,
     }
 
 
-def _repair_tour_from_matrix(x_matrix, n, tsp_data):
+def _decode_full(result, tsp_data):
+    """Decode from full n² encoding with tour repair."""
+    n = tsp_data["num_cities"]
+
+    try:
+        x = result.x
+        x_matrix = np.array(x[: n * n], dtype=float).reshape(n, n)
+
+        tour = []
+        for p in range(n):
+            city_at_p = int(np.argmax(x_matrix[:, p]))
+            tour.append(city_at_p)
+        tour.append(tour[0])
+
+        cities_visited = set(tour[:-1])
+        is_feasible = len(cities_visited) == n and len(tour) - 1 == n
+
+        if not is_feasible:
+            tour = _repair_full_tour(x_matrix, n, tsp_data)
+            is_feasible = True
+
+    except Exception:
+        tour = list(range(n)) + [0]
+        is_feasible = False
+
+    return {
+        "tour": tour,
+        "is_feasible": is_feasible,
+        "energy": float(result.fval) if hasattr(result, "fval") else None,
+    }
+
+
+def _repair_reduced_tour(x_matrix, start_node, cities, n, tsp_data):
     """
-    Build a valid tour from a noisy quantum assignment matrix.
-
-    Strategy:
-      1. Collect all (city, position, score) triples from x_matrix
-      2. Sort by score descending (highest quantum preference first)
-      3. Greedily assign: skip if city or position already taken
-      4. Any unassigned cities → fill into remaining positions using
-         nearest-neighbor heuristic for quality
-
-    Always returns a valid closed tour of length n+1.
+    Repair a noisy reduced-encoding quantum result into a valid tour.
+    x_matrix is m×m where m = n-1 (excluding start_node).
     """
-    # Step 1: Rank all (city, position) pairs by quantum preference score
-    scored_pairs = []
-    for city in range(n):
-        for pos in range(n):
-            scored_pairs.append((x_matrix[city, pos], city, pos))
-    scored_pairs.sort(reverse=True)  # highest score first
+    m = len(cities)
 
-    # Step 2: Greedy assignment
+    # Rank (city_index, position) pairs by quantum preference score
+    scored = []
+    for ci, city in enumerate(cities):
+        for p in range(m):
+            scored.append((x_matrix[ci, p], ci, p))
+    scored.sort(reverse=True)
+
     assigned_cities = set()
     assigned_positions = set()
-    tour_slots = [None] * n  # tour_slots[position] = city
+    slots = [None] * m
 
-    for score, city, pos in scored_pairs:
-        if city not in assigned_cities and pos not in assigned_positions:
-            tour_slots[pos] = city
+    for score, ci, p in scored:
+        if ci not in assigned_cities and p not in assigned_positions:
+            slots[p] = cities[ci]
+            assigned_cities.add(ci)
+            assigned_positions.add(p)
+        if len(assigned_cities) == m:
+            break
+
+    # Fill gaps with nearest-neighbor
+    missing = [ci for ci in range(m) if ci not in assigned_cities]
+    open_pos = [p for p in range(m) if p not in assigned_positions]
+    for ci, p in zip(missing, open_pos):
+        slots[p] = cities[ci]
+
+    return [start_node] + slots + [start_node]
+
+
+def _repair_full_tour(x_matrix, n, tsp_data):
+    """
+    Repair a noisy full-encoding quantum result into a valid tour.
+    x_matrix is n×n.
+    """
+    scored = []
+    for city in range(n):
+        for p in range(n):
+            scored.append((x_matrix[city, p], city, p))
+    scored.sort(reverse=True)
+
+    assigned_cities = set()
+    assigned_positions = set()
+    slots = [None] * n
+
+    for score, city, p in scored:
+        if city not in assigned_cities and p not in assigned_positions:
+            slots[p] = city
             assigned_cities.add(city)
-            assigned_positions.add(pos)
+            assigned_positions.add(p)
         if len(assigned_cities) == n:
             break
 
-    # Step 3: Fill any remaining gaps (unassigned cities into open positions)
-    missing_cities = [c for c in range(n) if c not in assigned_cities]
-    open_positions = [p for p in range(n) if p not in assigned_positions]
+    missing = [c for c in range(n) if c not in assigned_cities]
+    open_pos = [p for p in range(n) if p not in assigned_positions]
+    for city, p in zip(missing, open_pos):
+        slots[p] = city
 
-    # Use nearest-neighbor ordering for the remaining cities if we have distances
-    if missing_cities and "original_distances" in tsp_data:
-        dist_mat = tsp_data["original_distances"]
-        # Find the last assigned city to anchor from
-        last_assigned = None
-        for p in range(n - 1, -1, -1):
-            if tour_slots[p] is not None:
-                last_assigned = tour_slots[p]
-                break
-        if last_assigned is None:
-            last_assigned = 0
-
-        # Order missing cities by nearest-neighbor from last_assigned
-        ordered_missing = []
-        remaining = set(missing_cities)
-        current = last_assigned
-        while remaining:
-            nearest = min(remaining, key=lambda c: dist_mat[current][c])
-            ordered_missing.append(nearest)
-            remaining.remove(nearest)
-            current = nearest
-        missing_cities = ordered_missing
-
-    for city, pos in zip(missing_cities, open_positions):
-        tour_slots[pos] = city
-
-    # Close the tour
-    tour = tour_slots + [tour_slots[0]]
-    return tour
+    return slots + [slots[0]]

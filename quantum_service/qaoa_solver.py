@@ -417,7 +417,7 @@ def _decode_ibm_eigenstate(eigen_result, qubo, n_vars):
     work with — even if no single bitstring is a valid tour, the aggregate
     preferences often point to a good one.
     """
-    n = int(np.sqrt(n_vars))  # number of cities (n² = n_vars)
+    n = int(np.sqrt(n_vars))  # grid side (n-1 for reduced encoding, n for full)
 
     # Accumulate weighted assignment matrix from ALL samples
     weighted_matrix = np.zeros(n_vars, dtype=float)
