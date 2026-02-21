@@ -43,10 +43,10 @@ export default function Home() {
     const [overlayVisible, setOverlayVisible] = useState(false);
     const [overlayStatus, setOverlayStatus] = useState('');
 
-    // Road route state
-    const [showRoadRouteBtn, setShowRoadRouteBtn] = useState(false);
+    // Route display state — road is default, polygon is fallback
+    const [showPolygonBtn, setShowPolygonBtn] = useState(false);
     const [showRoad, setShowRoad] = useState(false);
-    const [roadRouteShown, setRoadRouteShown] = useState(false);
+    const [showPolygon, setShowPolygon] = useState(false);
     const [roadRouteLoading, setRoadRouteLoading] = useState(false);
 
     // Restriction placement modes
@@ -93,10 +93,10 @@ export default function Home() {
         setOverlayVisible(true);
         setOverlayStatus('Preprocessing road network with Dijkstra...');
 
-        // Reset road route state
-        setShowRoadRouteBtn(false);
+        // Reset route display state
+        setShowPolygonBtn(false);
         setShowRoad(false);
-        setRoadRouteShown(false);
+        setShowPolygon(false);
 
         try {
             await delay(400);
@@ -133,13 +133,15 @@ export default function Home() {
             await delay(400);
             setOverlayVisible(false);
 
-            setShowRoadRouteBtn(true);
-
             const distKm =
                 data.algorithm === 'compare'
                     ? (data.nearestNeighbor.distance / 1000).toFixed(2)
                     : (data.solution.distance / 1000).toFixed(2);
             showToast(`Route optimized: ${distKm} km (${data.metadata.totalTimeMs} ms)`, 'success');
+
+            // Auto-trigger road route fetch AFTER success confirmed
+            setRoadRouteLoading(true);
+            setShowRoad(true);
         } catch (err: unknown) {
             setOverlayVisible(false);
             const message = err instanceof Error ? err.message : 'Unknown error';
@@ -147,25 +149,24 @@ export default function Home() {
         }
     }, [locations, algorithm, getParamsForSolve, solve, showToast, solverEngine, roadBlocks, congestionZones]);
 
-    const handleShowRoadRoute = useCallback(() => {
-        setRoadRouteLoading(true);
-        setOverlayVisible(true);
-        setOverlayStatus('Fetching road geometry from OSRM...');
-        setShowRoad(true);
+    const handleShowPolygon = useCallback(() => {
+        setShowPolygon(true);
+        setShowRoad(false);
     }, []);
 
     const handleRoadRouteDrawn = useCallback(() => {
-        setOverlayVisible(false);
         setRoadRouteLoading(false);
-        setRoadRouteShown(true);
-        showToast('Road route rendered successfully', 'success');
-    }, [showToast]);
+        setShowPolygonBtn(true);
+    }, []);
 
     const handleRoadRouteError = useCallback(
         (error: string) => {
-            setOverlayVisible(false);
             setRoadRouteLoading(false);
-            showToast('Failed to fetch road route: ' + error, 'error');
+            // Auto-fallback to polygon on road fetch failure
+            setShowPolygon(true);
+            setShowRoad(false);
+            setShowPolygonBtn(false);
+            showToast('Road route failed, showing straight lines: ' + error, 'warning');
         },
         [showToast]
     );
@@ -174,9 +175,9 @@ export default function Home() {
         clearAll();
         clearResult();
         clearRestrictions();
-        setShowRoadRouteBtn(false);
+        setShowPolygonBtn(false);
         setShowRoad(false);
-        setRoadRouteShown(false);
+        setShowPolygon(false);
         setBlockModeActive(false);
         setCongestionModeActive(false);
         showToast('All locations and restrictions cleared', 'info');
@@ -211,10 +212,10 @@ export default function Home() {
                     onSolve={handleSolve}
                     solveResult={result}
                     isLoading={isLoading}
-                    showRoadRouteBtn={showRoadRouteBtn}
-                    roadRouteShown={roadRouteShown}
+                    showPolygonBtn={showPolygonBtn}
+                    polygonShown={showPolygon}
                     roadRouteLoading={roadRouteLoading}
-                    onShowRoadRoute={handleShowRoadRoute}
+                    onShowPolygon={handleShowPolygon}
                     // Restrictions
                     roadBlocks={roadBlocks}
                     congestionZones={congestionZones}
@@ -236,6 +237,7 @@ export default function Home() {
                     locations={locations}
                     solveResult={result}
                     showRoad={showRoad}
+                    showPolygon={showPolygon}
                     onLocationAdd={handleMapClick}
                     onLocationRemove={removeLocation}
                     onRoadRouteDrawn={handleRoadRouteDrawn}

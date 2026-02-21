@@ -68,10 +68,10 @@ export default function Sidebar({
     onSolve,
     solveResult,
     isLoading,
-    showRoadRouteBtn,
-    roadRouteShown,
+    showPolygonBtn,
+    polygonShown,
     roadRouteLoading,
-    onShowRoadRoute,
+    onShowPolygon,
 
     // Restrictions
     roadBlocks,
@@ -437,10 +437,10 @@ export default function Sidebar({
                 {solveResult && (
                     <ResultsPanel
                         data={solveResult}
-                        showRoadRouteBtn={showRoadRouteBtn}
-                        roadRouteShown={roadRouteShown}
+                        showPolygonBtn={showPolygonBtn}
+                        polygonShown={polygonShown}
                         roadRouteLoading={roadRouteLoading}
-                        onShowRoadRoute={onShowRoadRoute}
+                        onShowPolygon={onShowPolygon}
                     />
                 )}
             </div>
@@ -578,24 +578,24 @@ function ParamSlider({
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function ResultsPanel({
     data,
-    showRoadRouteBtn,
-    roadRouteShown,
+    showPolygonBtn,
+    polygonShown,
     roadRouteLoading,
-    onShowRoadRoute,
+    onShowPolygon,
 }: {
     data: SolveResult;
-    showRoadRouteBtn: boolean;
-    roadRouteShown: boolean;
+    showPolygonBtn: boolean;
+    polygonShown: boolean;
     roadRouteLoading: boolean;
-    onShowRoadRoute: () => void;
+    onShowPolygon: () => void;
 }) {
     if (data.algorithm === 'compare') {
-        return <CompareResults data={data} showRoadRouteBtn={showRoadRouteBtn} roadRouteShown={roadRouteShown} roadRouteLoading={roadRouteLoading} onShowRoadRoute={onShowRoadRoute} />;
+        return <CompareResults data={data} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
     }
-    return <SingleResults data={data} showRoadRouteBtn={showRoadRouteBtn} roadRouteShown={roadRouteShown} roadRouteLoading={roadRouteLoading} onShowRoadRoute={onShowRoadRoute} />;
+    return <SingleResults data={data} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
 }
 
-function RoadRouteButton({
+function PolygonRouteButton({
     show,
     shown,
     loading,
@@ -609,24 +609,24 @@ function RoadRouteButton({
     if (!show) return null;
     return (
         <button
-            id="btn-show-road"
+            id="btn-show-polygon"
             className={`btn btn-road-route${shown ? ' road-shown' : ''}`}
             disabled={shown || loading}
             onClick={onClick}
         >
             <span className={`btn-content${loading ? ' hidden' : ''}`}>
-                <i className={`fas fa-${shown ? 'check-circle' : 'road'}`}></i>
-                <span>{shown ? 'Road Route Shown' : 'Show Road Route'}</span>
+                <i className={`fas fa-${shown ? 'check-circle' : 'draw-polygon'}`}></i>
+                <span>{shown ? 'Polygon Shown' : 'Show Straight Lines'}</span>
             </span>
             <span className={`btn-loading${!loading ? ' hidden' : ''}`}>
                 <i className="fas fa-spinner fa-spin"></i>
-                <span>Fetching roads...</span>
+                <span>Loading...</span>
             </span>
         </button>
     );
 }
 
-function SingleResults({ data, showRoadRouteBtn, roadRouteShown, roadRouteLoading, onShowRoadRoute }: { data: SolveResult; showRoadRouteBtn: boolean; roadRouteShown: boolean; roadRouteLoading: boolean; onShowRoadRoute: () => void }) {
+function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
     const solution = data.solution;
     if (!solution) return null;
 
@@ -759,12 +759,12 @@ function SingleResults({ data, showRoadRouteBtn, roadRouteShown, roadRouteLoadin
                     </div>
                 </div>
             </div>
-            <RoadRouteButton show={showRoadRouteBtn} shown={roadRouteShown} loading={roadRouteLoading} onClick={onShowRoadRoute} />
+            <PolygonRouteButton show={showPolygonBtn} shown={polygonShown} loading={roadRouteLoading} onClick={onShowPolygon} />
         </section>
     );
 }
 
-function CompareResults({ data, showRoadRouteBtn, roadRouteShown, roadRouteLoading, onShowRoadRoute }: { data: SolveResult; showRoadRouteBtn: boolean; roadRouteShown: boolean; roadRouteLoading: boolean; onShowRoadRoute: () => void }) {
+function CompareResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
     const hk = data.heldKarp;
     const nn = data.nearestNeighbor;
     if (!nn) return null;
@@ -847,7 +847,7 @@ function CompareResults({ data, showRoadRouteBtn, roadRouteShown, roadRouteLoadi
                     </div>
                 </div>
             </div>
-            <RoadRouteButton show={showRoadRouteBtn} shown={roadRouteShown} loading={roadRouteLoading} onClick={onShowRoadRoute} />
+            <PolygonRouteButton show={showPolygonBtn} shown={polygonShown} loading={roadRouteLoading} onClick={onShowPolygon} />
         </section>
     );
 }
