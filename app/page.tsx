@@ -26,14 +26,14 @@ export default function Home() {
     const { toasts, showToast } = useToast();
     const {
         roadBlocks,
-        congestionZones,
+        weatherZones,
         addBlock,
         removeBlock,
-        addCongestion,
-        removeCongestion,
-        updateCongestion,
+        addWeather,
+        removeWeather,
+        updateWeather,
         updateBlockPosition,
-        updateCongestionPosition,
+        updateWeatherPosition,
         clearRestrictions,
     } = useRestrictions();
 
@@ -63,15 +63,15 @@ export default function Home() {
 
     // Restriction placement modes
     const [blockModeActive, setBlockModeActive] = useState(false);
-    const [congestionModeActive, setCongestionModeActive] = useState(false);
+    const [weatherModeActive, setWeatherModeActive] = useState(false);
 
     const handleToggleBlockMode = useCallback((active: boolean) => {
         setBlockModeActive(active);
-        if (active) setCongestionModeActive(false);
+        if (active) setWeatherModeActive(false);
     }, []);
 
-    const handleToggleCongestionMode = useCallback((active: boolean) => {
-        setCongestionModeActive(active);
+    const handleToggleWeatherMode = useCallback((active: boolean) => {
+        setWeatherModeActive(active);
         if (active) setBlockModeActive(false);
     }, []);
 
@@ -87,14 +87,14 @@ export default function Home() {
             if (blockModeActive) {
                 addBlock(lat, lng);
                 showToast('Road block placed', 'info');
-            } else if (congestionModeActive) {
-                addCongestion(lat, lng);
-                showToast('Congestion zone placed', 'info');
+            } else if (weatherModeActive) {
+                addWeather(lat, lng);
+                showToast('Weather zone placed', 'info');
             } else {
                 addLocation(lat, lng);
             }
         },
-        [blockModeActive, congestionModeActive, addBlock, addCongestion, addLocation, showToast]
+        [blockModeActive, weatherModeActive, addBlock, addWeather, addLocation, showToast]
     );
 
     const handleSolve = useCallback(async () => {
@@ -122,7 +122,7 @@ export default function Home() {
             setOverlayStatus('Building distance matrix via OSRM...');
             await delay(300);
 
-            if (roadBlocks.length > 0 || congestionZones.length > 0) {
+            if (roadBlocks.length > 0 || weatherZones.length > 0) {
                 setOverlayStatus('Applying logistical restrictions...');
                 await delay(300);
             }
@@ -149,7 +149,7 @@ export default function Home() {
             const paramsWithRestrictions = {
                 ...solveParams,
                 roadBlocks: roadBlocks.length > 0 ? roadBlocks : undefined,
-                congestionZones: congestionZones.length > 0 ? congestionZones : undefined,
+                weatherZones: weatherZones.length > 0 ? weatherZones : undefined,
             };
             const data = await solve(locations, algorithm, paramsWithRestrictions, solverEngine);
             setOverlayStatus('Collapsing quantum state to optimal route...');
@@ -170,7 +170,7 @@ export default function Home() {
             const message = err instanceof Error ? err.message : 'Unknown error';
             showToast(message, 'error');
         }
-    }, [locations, algorithm, getParamsForSolve, solve, showToast, solverEngine, roadBlocks, congestionZones]);
+    }, [locations, algorithm, getParamsForSolve, solve, showToast, solverEngine, roadBlocks, weatherZones]);
 
     const handleShowPolygon = useCallback(() => {
         setShowPolygon(true);
@@ -202,7 +202,7 @@ export default function Home() {
         setShowRoad(false);
         setShowPolygon(false);
         setBlockModeActive(false);
-        setCongestionModeActive(false);
+        setWeatherModeActive(false);
         showToast('All locations and restrictions cleared', 'info');
     }, [clearAll, clearResult, clearRestrictions, showToast]);
 
@@ -248,14 +248,14 @@ export default function Home() {
                     onToggleCollapse={toggleSidebar}
                     // Restrictions
                     roadBlocks={roadBlocks}
-                    congestionZones={congestionZones}
+                    weatherZones={weatherZones}
                     blockModeActive={blockModeActive}
-                    congestionModeActive={congestionModeActive}
+                    weatherModeActive={weatherModeActive}
                     onToggleBlockMode={handleToggleBlockMode}
-                    onToggleCongestionMode={handleToggleCongestionMode}
+                    onToggleWeatherMode={handleToggleWeatherMode}
                     onRemoveBlock={removeBlock}
-                    onRemoveCongestion={removeCongestion}
-                    onUpdateCongestion={updateCongestion}
+                    onRemoveWeather={removeWeather}
+                    onUpdateWeather={updateWeather}
                     onClearRestrictions={clearRestrictions}
                 />
 
@@ -282,13 +282,13 @@ export default function Home() {
                     onRoadRouteError={handleRoadRouteError}
                     // Restrictions
                     roadBlocks={roadBlocks}
-                    congestionZones={congestionZones}
+                    weatherZones={weatherZones}
                     blockModeActive={blockModeActive}
-                    congestionModeActive={congestionModeActive}
+                    weatherModeActive={weatherModeActive}
                     onRemoveBlock={removeBlock}
-                    onRemoveCongestion={removeCongestion}
+                    onRemoveWeather={removeWeather}
                     onUpdateBlockPosition={updateBlockPosition}
-                    onUpdateCongestionPosition={updateCongestionPosition}
+                    onUpdateWeatherPosition={updateWeatherPosition}
                 />
             </div>
         </>

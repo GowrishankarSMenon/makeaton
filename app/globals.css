@@ -2064,9 +2064,9 @@ body {
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
 }
 
-.mode-toggle.congestion.active .mode-toggle-slider {
-  background: #f59e0b;
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+.mode-toggle.weather.active .mode-toggle-slider {
+  background: #3b82f6;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
 }
 
 .mode-toggle input:checked + .mode-toggle-slider::before {
@@ -2086,8 +2086,8 @@ body {
   color: #f87171;
 }
 
-.mode-toggle.congestion.active .mode-toggle-label {
-  color: #fbbf24;
+.mode-toggle.weather.active .mode-toggle-label {
+  color: #60a5fa;
 }
 
 /* ── Restriction Hint ──────────────────────────────────── */
@@ -2109,13 +2109,13 @@ body {
   animation: crosshairPulse 1.5s ease-in-out infinite;
 }
 
-.congestion-hint {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.25);
+.weather-hint {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
 }
 
-.congestion-hint i {
-  color: #fbbf24;
+.weather-hint i {
+  color: #60a5fa;
 }
 
 @keyframes fadeInHint {
@@ -2155,9 +2155,9 @@ body {
   background: rgba(239, 68, 68, 0.06);
 }
 
-.congestion-item:hover {
-  border-color: rgba(245, 158, 11, 0.2);
-  background: rgba(245, 158, 11, 0.06);
+.weather-item:hover {
+  border-color: rgba(59, 130, 246, 0.2);
+  background: rgba(59, 130, 246, 0.06);
 }
 
 .restriction-item-icon {
@@ -2265,7 +2265,7 @@ body {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   cursor: pointer;
   border: none;
 }
@@ -2274,13 +2274,121 @@ body {
   font-size: 10px;
   font-family: var(--font-mono);
   font-weight: 600;
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.1);
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
   padding: 1px 6px;
   border-radius: 3px;
   min-width: 42px;
   text-align: center;
   flex-shrink: 0;
+}
+
+/* ── Weather Type Selector ───────────────────────────── */
+.weather-type-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.weather-type-btn {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.weather-type-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.weather-type-btn.rain.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+}
+
+.weather-type-btn.lightning.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+}
+
+/* ── Fragile Toggle ────────────────────────────────── */
+.fragile-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.fragile-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.fragile-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.fragile-toggle input {
+  display: none;
+}
+
+.fragile-toggle-slider {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.fragile-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fragile-toggle.active .fragile-toggle-slider {
+  background: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.35);
+}
+
+.fragile-toggle input:checked + .fragile-toggle-slider::before {
+  transform: translateX(12px);
+}
+
+.fragile-toggle-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.fragile-toggle.active .fragile-toggle-label {
+  color: #f87171;
 }
 
 /* ── Map Markers: Road Block ───────────────────────────── */
@@ -2325,34 +2433,39 @@ body {
   50% { opacity: 0; transform: scale(1.5); }
 }
 
-/* ── Map Markers: Congestion Zone Center ───────────────── */
-.congestion-center-marker {
+/* ── Map Markers: Weather Zone Center ───────────────── */
+.weather-center-marker {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.congestion-center-dot {
-  width: 14px;
-  height: 14px;
+.weather-center-dot {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 0 10px currentColor;
   cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
 }
 
-.congestion-center-dot:active {
+.weather-center-dot:active {
   cursor: grabbing;
 }
 
-/* ── Congestion zone circle pulse ──────────────────────── */
-.congestion-zone-circle {
-  animation: congestionPulse 3s ease-in-out infinite;
+/* ── Weather zone circle pulse ──────────────────────── */
+.weather-zone-circle {
+  animation: weatherPulse 4s ease-in-out infinite;
 }
 
-@keyframes congestionPulse {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 0.5; }
+@keyframes weatherPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 0.4; }
 }
 
 /* ── Map Mode Indicator ────────────────────────────────── */
@@ -2385,9 +2498,9 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.mode-indicator-badge.congestion-mode {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.85), rgba(234, 88, 12, 0.85));
-  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35);
+.mode-indicator-badge.weather-mode {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(99, 102, 241, 0.85));
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 

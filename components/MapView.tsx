@@ -5,7 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapLocation } from '@/hooks/useLocations';
 import { SolveResult } from '@/hooks/useSolver';
-import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
+import { RoadBlock, WeatherZone } from '@/hooks/useRestrictions';
 import { getRoadRoute, RoadBlockForRoute } from '@/lib/visualization';
 
 const TILE_LAYERS = {
@@ -84,13 +84,13 @@ interface MapViewProps {
     onRoadRouteError: (error: string) => void;
     // Restrictions
     roadBlocks: RoadBlock[];
-    congestionZones: CongestionZone[];
+    weatherZones: WeatherZone[];
     blockModeActive: boolean;
-    congestionModeActive: boolean;
+    weatherModeActive: boolean;
     onRemoveBlock: (id: string) => void;
-    onRemoveCongestion: (id: string) => void;
+    onRemoveWeather: (id: string) => void;
     onUpdateBlockPosition: (id: string, lat: number, lng: number) => void;
-    onUpdateCongestionPosition: (id: string, lat: number, lng: number) => void;
+    onUpdateWeatherPosition: (id: string, lat: number, lng: number) => void;
 }
 
 export default function MapView({
@@ -105,20 +105,20 @@ export default function MapView({
     onRoadRouteError,
     // Restrictions
     roadBlocks,
-    congestionZones,
+    weatherZones,
     blockModeActive,
-    congestionModeActive,
+    weatherModeActive,
     onRemoveBlock,
-    onRemoveCongestion,
+    onRemoveWeather,
     onUpdateBlockPosition,
-    onUpdateCongestionPosition,
+    onUpdateWeatherPosition,
 }: MapViewProps) {
     const mapRef = useRef<L.Map | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<L.Marker[]>([]);
     const routeLayersRef = useRef<L.Layer[]>([]);
     const blockMarkersRef = useRef<L.Marker[]>([]);
-    const congestionLayersRef = useRef<L.Circle[]>([]);
+    const weatherLayersRef = useRef<L.Circle[]>([]);
     const [isDark, setIsDark] = useState(false);
     const tileLayerRef = useRef<L.TileLayer | null>(null);
     const onLocationAddRef = useRef(onLocationAdd);
@@ -395,35 +395,40 @@ export default function MapView({
         };
     }, [roadBlocks, onRemoveBlock, onUpdateBlockPosition]);
 
-    // Render congestion zone circles
+    // Render weather zone circles
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
 
         // Clear old circles
-        congestionLayersRef.current.forEach((c) => map.removeLayer(c));
-        congestionLayersRef.current = [];
+        weatherLayersRef.current.forEach((c) => map.removeLayer(c));
+        weatherLayersRef.current = [];
 
-        congestionZones.forEach((zone) => {
-            const color = getIntensityColor(zone.intensity);
+        weatherZones.forEach((zone) => {
+            const isLightning = zone.type === 'lightning';
+            const color = isLightning ? '#f59e0b' : '#3b82f6';
+            const fragileColor = '#ef4444';
 
             const circle = L.circle([zone.lat, zone.lng], {
                 radius: zone.radiusKm * 1000,
-                color: color,
+                color: zone.fragile ? fragileColor : color,
                 fillColor: color,
-                fillOpacity: 0.15 + (zone.intensity - 1.5) * 0.04,
-                weight: 2,
-                dashArray: '6 4',
-                className: 'congestion-zone-circle',
+                fillOpacity: 0.08,
+                weight: zone.fragile ? 3 : 2,
+                dashArray: zone.fragile ? '8 4' : '6 4',
+                className: 'weather-zone-circle',
             }).addTo(map);
+
+            const typeLabel = isLightning ? '⚡ Lightning Zone' : '🌧️ Rain Zone';
+            const fragileLabel = zone.fragile ? '<br><span style="color:#ef4444;font-weight:700">📦 Fragile — Route Avoided</span>' : '';
 
             circle.bindPopup(`
                 <div style="text-align:center">
-                    <strong style="color:${color}">🔴 Congestion Zone</strong><br>
+                    <strong style="color:${color}">${typeLabel}</strong>${fragileLabel}<br>
                     <span style="font-size:11px;color:#94a3b8">
-                        Radius: ${zone.radiusKm} km · Intensity: ${zone.intensity.toFixed(1)}×
+                        Radius: ${zone.radiusKm} km
                     </span><br>
-                    <button onclick="window.__removeCongestion('${zone.id}')" 
+                    <button onclick="window.__removeWeather('${zone.id}')" 
                         style="margin-top:6px;padding:4px 10px;background:${color};color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;">
                         Remove
                     </button>
@@ -431,49 +436,50 @@ export default function MapView({
             `);
 
             // Enable dragging via a center marker
+            const centerEmoji = isLightning ? '⚡' : '🌧️';
             const centerHtml = `
-                <div class="congestion-center-marker">
-                    <div class="congestion-center-dot" style="background:${color}"></div>
+                <div class="weather-center-marker">
+                    <div class="weather-center-dot" style="background:${color}">${centerEmoji}</div>
                 </div>
             `;
 
             const centerIcon = L.divIcon({
                 html: centerHtml,
                 className: '',
-                iconSize: [20, 20],
-                iconAnchor: [10, 10],
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
             });
 
             const centerMarker = L.marker([zone.lat, zone.lng], {
                 icon: centerIcon,
                 draggable: true,
-                title: `Congestion Zone (${zone.intensity.toFixed(1)}×)`,
+                title: `${typeLabel}${zone.fragile ? ' (Fragile)' : ''}`,
                 zIndexOffset: 400,
             }).addTo(map);
 
             centerMarker.on('dragend', () => {
                 const pos = centerMarker.getLatLng();
-                onUpdateCongestionPosition(zone.id, pos.lat, pos.lng);
+                onUpdateWeatherPosition(zone.id, pos.lat, pos.lng);
             });
 
-            congestionLayersRef.current.push(circle);
+            weatherLayersRef.current.push(circle);
             // Also track center markers for cleanup — store on the circle
             (circle as any)._centerMarker = centerMarker;
         });
 
         // Expose remove function globally for popup buttons
-        (window as any).__removeCongestion = (id: string) => {
-            onRemoveCongestion(id);
+        (window as any).__removeWeather = (id: string) => {
+            onRemoveWeather(id);
         };
 
         return () => {
             // Cleanup center markers
-            congestionLayersRef.current.forEach((c) => {
+            weatherLayersRef.current.forEach((c) => {
                 const cm = (c as any)._centerMarker;
                 if (cm && map) map.removeLayer(cm);
             });
         };
-    }, [congestionZones, onRemoveCongestion, onUpdateCongestionPosition]);
+    }, [weatherZones, onRemoveWeather, onUpdateWeatherPosition]);
 
     // Clear routes when solveResult changes (new solve started)
     useEffect(() => {
@@ -553,6 +559,17 @@ export default function MapView({
                     id: b.id,
                 }));
 
+                // Also treat 'fragile' weather zones as blocks so the map
+                // visualization accurately draws routes around them
+                weatherZones.filter(w => w.fragile).forEach(w => {
+                    blocks.push({
+                        lat: w.lat,
+                        lng: w.lng,
+                        id: w.id,
+                        radiusKm: w.radiusKm
+                    });
+                });
+
                 let animationPath: [number, number][] = [];
 
                 if (solveResult.algorithm === 'compare') {
@@ -598,7 +615,7 @@ export default function MapView({
 
         drawRoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showRoad, solveResult, roadBlocks, onRoadRouteDrawn, onRoadRouteError, stopDriverAnimation, startDriverAnimation]);
+    }, [showRoad, solveResult, roadBlocks, weatherZones, onRoadRouteDrawn, onRoadRouteError, stopDriverAnimation, startDriverAnimation]);
 
     const drawPolylineGroup = useCallback(
         (
@@ -678,12 +695,12 @@ export default function MapView({
         const container = map.getContainer();
         if (blockModeActive) {
             container.style.cursor = 'crosshair';
-        } else if (congestionModeActive) {
+        } else if (weatherModeActive) {
             container.style.cursor = 'crosshair';
         } else {
             container.style.cursor = '';
         }
-    }, [blockModeActive, congestionModeActive]);
+    }, [blockModeActive, weatherModeActive]);
 
     return (
         <>
@@ -698,26 +715,18 @@ export default function MapView({
             </button>
 
             {/* Active mode indicator on map */}
-            {(blockModeActive || congestionModeActive) && (
+            {(blockModeActive || weatherModeActive) && (
                 <div className="map-mode-indicator">
-                    <div className={`mode-indicator-badge ${blockModeActive ? 'block-mode' : 'congestion-mode'}`}>
+                    <div className={`mode-indicator-badge ${blockModeActive ? 'block-mode' : 'weather-mode'}`}>
                         <span className="mode-indicator-icon">
-                            {blockModeActive ? '🚧' : '🔴'}
+                            {blockModeActive ? '🚧' : '🌧️'}
                         </span>
                         <span className="mode-indicator-text">
-                            {blockModeActive ? 'Placing Road Blocks' : 'Placing Congestion Zones'}
+                            {blockModeActive ? 'Placing Road Blocks' : 'Placing Weather Zones'}
                         </span>
                     </div>
                 </div>
             )}
         </>
     );
-}
-
-function getIntensityColor(intensity: number): string {
-    // Gradient from orange to deep red based on intensity
-    if (intensity <= 2.0) return '#f59e0b';
-    if (intensity <= 3.0) return '#ef4444';
-    if (intensity <= 4.0) return '#dc2626';
-    return '#991b1b';
 }

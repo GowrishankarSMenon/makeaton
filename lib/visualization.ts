@@ -11,6 +11,7 @@ export interface RoadBlockForRoute {
     lat: number;
     lng: number;
     id: string;
+    radiusKm?: number;
 }
 
 const BLOCK_RADIUS_KM = 0.3;
@@ -63,9 +64,10 @@ function pointToSegmentDistKm(
  */
 function routePassesThroughBlock(
     routePoints: [number, number][],
-    block: RoadBlockForRoute,
-    radiusKm: number = BLOCK_RADIUS_KM
+    block: RoadBlockForRoute
 ): boolean {
+    const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
+
     // Check sampled points along the route
     const step = Math.max(1, Math.floor(routePoints.length / 50));
     for (let i = 0; i < routePoints.length; i += step) {
@@ -103,8 +105,9 @@ function computeDetourPoint(
         return { lat: block.lat + 0.03, lng: block.lng + 0.03 };
     }
 
-    // Normalize and scale — offset by ~3km equivalent in degrees
-    const offsetDeg = 0.03; // ~3.3 km
+    // Normalize and scale — offset by block radius + a buffer, converted to degrees
+    const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
+    const offsetDeg = Math.max(0.03, (radiusKm + 1.0) / 111.32);
     const normLat = (perpLat / perpLen) * offsetDeg;
     const normLng = (perpLng / perpLen) * offsetDeg;
 
@@ -134,9 +137,10 @@ async function fetchSegmentAvoidingBlocks(
 
     // Check if direct route passes through any block
     for (const block of blocks) {
+        const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
         // Check straight-line proximity first (fast)
         const straightLineDist = pointToSegmentDistKm(block, from, to);
-        if (straightLineDist > BLOCK_RADIUS_KM * 2) continue;
+        if (straightLineDist > radiusKm * 2) continue;
 
         // Check actual road geometry
         if (routePassesThroughBlock(directRoute, block)) {

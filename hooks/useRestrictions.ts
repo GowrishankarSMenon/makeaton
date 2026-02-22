@@ -8,11 +8,12 @@ export interface RoadBlock {
     id: string;
 }
 
-export interface CongestionZone {
+export interface WeatherZone {
     lat: number;
     lng: number;
     radiusKm: number;
-    intensity: number;
+    type: 'rain' | 'lightning';
+    fragile: boolean;
     id: string;
 }
 
@@ -21,7 +22,7 @@ let zoneCounter = 0;
 
 export function useRestrictions() {
     const [roadBlocks, setRoadBlocks] = useState<RoadBlock[]>([]);
-    const [congestionZones, setCongestionZones] = useState<CongestionZone[]>([]);
+    const [weatherZones, setWeatherZones] = useState<WeatherZone[]>([]);
 
     const addBlock = useCallback((lat: number, lng: number) => {
         blockCounter++;
@@ -35,27 +36,28 @@ export function useRestrictions() {
         setRoadBlocks((prev) => prev.filter((b) => b.id !== id));
     }, []);
 
-    const addCongestion = useCallback((lat: number, lng: number) => {
+    const addWeather = useCallback((lat: number, lng: number) => {
         zoneCounter++;
-        setCongestionZones((prev) => [
+        setWeatherZones((prev) => [
             ...prev,
             {
                 lat,
                 lng,
                 radiusKm: 2,
-                intensity: 2.0,
-                id: `zone-${zoneCounter}-${Date.now()}`,
+                type: 'rain',
+                fragile: false,
+                id: `weather-${zoneCounter}-${Date.now()}`,
             },
         ]);
     }, []);
 
-    const removeCongestion = useCallback((id: string) => {
-        setCongestionZones((prev) => prev.filter((z) => z.id !== id));
+    const removeWeather = useCallback((id: string) => {
+        setWeatherZones((prev) => prev.filter((z) => z.id !== id));
     }, []);
 
-    const updateCongestion = useCallback(
-        (id: string, updates: Partial<Pick<CongestionZone, 'radiusKm' | 'intensity'>>) => {
-            setCongestionZones((prev) =>
+    const updateWeather = useCallback(
+        (id: string, updates: Partial<Pick<WeatherZone, 'radiusKm' | 'type' | 'fragile'>>) => {
+            setWeatherZones((prev) =>
                 prev.map((z) => (z.id === id ? { ...z, ...updates } : z))
             );
         },
@@ -68,27 +70,27 @@ export function useRestrictions() {
         );
     }, []);
 
-    const updateCongestionPosition = useCallback((id: string, lat: number, lng: number) => {
-        setCongestionZones((prev) =>
+    const updateWeatherPosition = useCallback((id: string, lat: number, lng: number) => {
+        setWeatherZones((prev) =>
             prev.map((z) => (z.id === id ? { ...z, lat, lng } : z))
         );
     }, []);
 
     const clearRestrictions = useCallback(() => {
         setRoadBlocks([]);
-        setCongestionZones([]);
+        setWeatherZones([]);
     }, []);
 
     return {
         roadBlocks,
-        congestionZones,
+        weatherZones,
         addBlock,
         removeBlock,
-        addCongestion,
-        removeCongestion,
-        updateCongestion,
+        addWeather,
+        removeWeather,
+        updateWeather,
         updateBlockPosition,
-        updateCongestionPosition,
+        updateWeatherPosition,
         clearRestrictions,
     };
 }

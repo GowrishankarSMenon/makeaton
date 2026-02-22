@@ -3,7 +3,7 @@
 import { MapLocation } from '@/hooks/useLocations';
 import { LogisticsParams } from '@/hooks/useParams';
 import { SolveResult } from '@/hooks/useSolver';
-import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
+import { RoadBlock, WeatherZone } from '@/hooks/useRestrictions';
 
 interface SidebarProps {
     locations: MapLocation[];
@@ -29,14 +29,14 @@ interface SidebarProps {
 
     // Restrictions
     roadBlocks: RoadBlock[];
-    congestionZones: CongestionZone[];
+    weatherZones: WeatherZone[];
     blockModeActive: boolean;
-    congestionModeActive: boolean;
+    weatherModeActive: boolean;
     onToggleBlockMode: (active: boolean) => void;
-    onToggleCongestionMode: (active: boolean) => void;
+    onToggleWeatherMode: (active: boolean) => void;
     onRemoveBlock: (id: string) => void;
-    onRemoveCongestion: (id: string) => void;
-    onUpdateCongestion: (id: string, updates: Partial<Pick<CongestionZone, 'radiusKm' | 'intensity'>>) => void;
+    onRemoveWeather: (id: string) => void;
+    onUpdateWeather: (id: string, updates: Partial<Pick<WeatherZone, 'radiusKm' | 'type' | 'fragile'>>) => void;
     onClearRestrictions: () => void;
 }
 
@@ -73,17 +73,17 @@ export default function Sidebar({
 
     // Restrictions
     roadBlocks,
-    congestionZones,
+    weatherZones,
     blockModeActive,
-    congestionModeActive,
+    weatherModeActive,
     onToggleBlockMode,
-    onToggleCongestionMode,
+    onToggleWeatherMode,
     onRemoveBlock,
-    onRemoveCongestion,
-    onUpdateCongestion,
+    onRemoveWeather,
+    onUpdateWeather,
     onClearRestrictions,
 }: SidebarProps) {
-    const totalRestrictions = roadBlocks.length + congestionZones.length;
+    const totalRestrictions = roadBlocks.length + weatherZones.length;
     const algoInfo = ALGO_LOOKUP[algorithm] || { name: algorithm, icon: 'fas fa-cog', category: 'Unknown' };
 
     return (
@@ -267,46 +267,66 @@ export default function Sidebar({
 
                         <div className="restriction-divider"></div>
 
-                        {/* Congestion Zone Mode */}
+                        {/* Weather Zone Mode */}
                         <div className="restriction-section">
                             <div className="restriction-header">
                                 <div className="restriction-title">
-                                    <span className="restriction-icon congestion-icon">🔴</span>
+                                    <span className="restriction-icon weather-icon">🌧️</span>
                                     <div>
-                                        <div className="restriction-name">Traffic Congestion Zones</div>
-                                        <div className="restriction-desc">Simulate heavy traffic in an area</div>
+                                        <div className="restriction-name">Weather Zones</div>
+                                        <div className="restriction-desc">Rain or lightning in delivery area</div>
                                     </div>
                                 </div>
-                                <label className={`mode-toggle congestion${congestionModeActive ? ' active' : ''}`}>
+                                <label className={`mode-toggle weather${weatherModeActive ? ' active' : ''}`}>
                                     <input
                                         type="checkbox"
-                                        checked={congestionModeActive}
-                                        onChange={(e) => onToggleCongestionMode(e.target.checked)}
+                                        checked={weatherModeActive}
+                                        onChange={(e) => onToggleWeatherMode(e.target.checked)}
                                         suppressHydrationWarning
                                     />
                                     <span className="mode-toggle-slider"></span>
-                                    <span className="mode-toggle-label">{congestionModeActive ? 'Placing' : 'Off'}</span>
+                                    <span className="mode-toggle-label">{weatherModeActive ? 'Placing' : 'Off'}</span>
                                 </label>
                             </div>
 
-                            {congestionModeActive && (
-                                <div className="restriction-hint congestion-hint">
+                            {weatherModeActive && (
+                                <div className="restriction-hint weather-hint">
                                     <i className="fas fa-crosshairs"></i>
-                                    Click on the map to place a congestion zone
+                                    Click on the map to place a weather zone
                                 </div>
                             )}
 
-                            {congestionZones.length > 0 && (
+                            {weatherZones.length > 0 && (
                                 <ul className="restriction-list">
-                                    {congestionZones.map((zone, idx) => (
-                                        <li key={zone.id} className="restriction-item congestion-item">
-                                            <span className="restriction-item-icon">🔴</span>
+                                    {weatherZones.map((zone, idx) => (
+                                        <li key={zone.id} className="restriction-item weather-item">
+                                            <span className="restriction-item-icon">
+                                                {zone.type === 'lightning' ? '⚡' : '🌧️'}
+                                            </span>
                                             <div className="restriction-item-info">
                                                 <span className="restriction-item-label">Zone {idx + 1}</span>
                                                 <span className="restriction-item-coords">
                                                     {zone.lat.toFixed(4)}, {zone.lng.toFixed(4)}
                                                 </span>
                                                 <div className="zone-controls">
+                                                    {/* Weather Type Selector */}
+                                                    <div className="weather-type-selector">
+                                                        <button
+                                                            className={`weather-type-btn rain${zone.type === 'rain' ? ' active' : ''}`}
+                                                            onClick={() => onUpdateWeather(zone.id, { type: 'rain' })}
+                                                            title="Rain"
+                                                        >
+                                                            🌧️ Rain
+                                                        </button>
+                                                        <button
+                                                            className={`weather-type-btn lightning${zone.type === 'lightning' ? ' active' : ''}`}
+                                                            onClick={() => onUpdateWeather(zone.id, { type: 'lightning' })}
+                                                            title="Lightning"
+                                                        >
+                                                            ⚡ Lightning
+                                                        </button>
+                                                    </div>
+                                                    {/* Radius Slider */}
                                                     <div className="zone-control">
                                                         <span className="zone-control-label">Radius</span>
                                                         <input
@@ -317,36 +337,38 @@ export default function Sidebar({
                                                             step={0.5}
                                                             value={zone.radiusKm}
                                                             onChange={(e) =>
-                                                                onUpdateCongestion(zone.id, {
+                                                                onUpdateWeather(zone.id, {
                                                                     radiusKm: parseFloat(e.target.value),
                                                                 })
                                                             }
                                                         />
                                                         <span className="zone-control-value">{zone.radiusKm} km</span>
                                                     </div>
-                                                    <div className="zone-control">
-                                                        <span className="zone-control-label">Intensity</span>
-                                                        <input
-                                                            type="range"
-                                                            className="zone-slider intensity"
-                                                            min={1.5}
-                                                            max={5.0}
-                                                            step={0.5}
-                                                            value={zone.intensity}
-                                                            onChange={(e) =>
-                                                                onUpdateCongestion(zone.id, {
-                                                                    intensity: parseFloat(e.target.value),
-                                                                })
-                                                            }
-                                                        />
-                                                        <span className="zone-control-value">{zone.intensity.toFixed(1)}×</span>
+                                                    {/* Fragile Toggle */}
+                                                    <div className="fragile-toggle-row">
+                                                        <span className="fragile-label">📦 Fragile Item</span>
+                                                        <label className={`fragile-toggle${zone.fragile ? ' active' : ''}`}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={zone.fragile}
+                                                                onChange={(e) =>
+                                                                    onUpdateWeather(zone.id, {
+                                                                        fragile: e.target.checked,
+                                                                    })
+                                                                }
+                                                            />
+                                                            <span className="fragile-toggle-slider"></span>
+                                                            <span className="fragile-toggle-label">
+                                                                {zone.fragile ? 'Avoid' : 'Penalize'}
+                                                            </span>
+                                                        </label>
                                                     </div>
                                                 </div>
                                             </div>
                                             <button
                                                 className="restriction-remove"
                                                 title="Remove zone"
-                                                onClick={() => onRemoveCongestion(zone.id)}
+                                                onClick={() => onRemoveWeather(zone.id)}
                                                 suppressHydrationWarning
                                             >
                                                 <i className="fas fa-times"></i>
@@ -646,31 +668,29 @@ function SingleResults({ data, fuelEfficiency, showPolygonBtn, polygonShown, roa
                                     letterSpacing: '0.5px',
                                     background:
                                         qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.15)' :
-                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.15)' :
-                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.15)' :
-                                        'rgba(148,163,184,0.15)',
+                                            qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.15)' :
+                                                qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.15)' :
+                                                    'rgba(148,163,184,0.15)',
                                     color:
                                         qm.executionMode === 'real_hardware' ? '#22c55e' :
-                                        qm.executionMode === 'ibm_simulator' ? '#3b82f6' :
-                                        qm.executionMode === 'local_fallback' ? '#f59e0b' :
-                                        '#94a3b8',
-                                    border: `1px solid ${
-                                        qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.3)' :
-                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.3)' :
-                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.3)' :
-                                        'rgba(148,163,184,0.3)'
-                                    }`,
+                                            qm.executionMode === 'ibm_simulator' ? '#3b82f6' :
+                                                qm.executionMode === 'local_fallback' ? '#f59e0b' :
+                                                    '#94a3b8',
+                                    border: `1px solid ${qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.3)' :
+                                            qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.3)' :
+                                                qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.3)' :
+                                                    'rgba(148,163,184,0.3)'
+                                        }`,
                                 }}>
-                                    <i className={`fas fa-${
-                                        qm.executionMode === 'real_hardware' ? 'microchip' :
-                                        qm.executionMode === 'ibm_simulator' ? 'cloud' :
-                                        qm.executionMode === 'local_fallback' ? 'exclamation-triangle' :
-                                        'desktop'
-                                    }`}></i>
+                                    <i className={`fas fa-${qm.executionMode === 'real_hardware' ? 'microchip' :
+                                            qm.executionMode === 'ibm_simulator' ? 'cloud' :
+                                                qm.executionMode === 'local_fallback' ? 'exclamation-triangle' :
+                                                    'desktop'
+                                        }`}></i>
                                     {qm.executionMode === 'real_hardware' ? 'Real Hardware' :
-                                     qm.executionMode === 'ibm_simulator' ? 'IBM Cloud Sim' :
-                                     qm.executionMode === 'local_fallback' ? 'Local Fallback' :
-                                     'Local Simulator'}
+                                        qm.executionMode === 'ibm_simulator' ? 'IBM Cloud Sim' :
+                                            qm.executionMode === 'local_fallback' ? 'Local Fallback' :
+                                                'Local Simulator'}
                                 </span>
                                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
                                     {qm.backend}

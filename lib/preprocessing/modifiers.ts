@@ -10,11 +10,12 @@ export interface RoadBlockParam {
     id: string;
 }
 
-export interface CongestionZoneParam {
+export interface WeatherZoneParam {
     lat: number;
     lng: number;
     radiusKm: number;
-    intensity: number;
+    type: 'rain' | 'lightning';
+    fragile: boolean;
     id: string;
 }
 
@@ -30,7 +31,7 @@ export interface LogisticsParams {
     fuelEfficiency?: number;
     deliveryPriority?: number[] | null;
     roadBlocks?: RoadBlockParam[];
-    congestionZones?: CongestionZoneParam[];
+    weatherZones?: WeatherZoneParam[];
 }
 
 export interface ModifiedMatrices {
@@ -133,7 +134,7 @@ export function applyModifiers(
         fuelEfficiency = 1.0,
         deliveryPriority = null,
         roadBlocks = [],
-        congestionZones = [],
+        weatherZones = [],
     } = params;
 
     const weightedDistances = Array.from({ length: n }, () =>
@@ -211,8 +212,9 @@ export function applyModifiers(
         );
     }
 
-    // Apply congestion zones: multiply edge weights if the path passes through a zone
-    if (locations && congestionZones.length > 0) {
+    // Apply weather zones: fragile = block edges entirely, non-fragile = weather multiplier
+    if (locations && weatherZones.length > 0) {
+        let blockedEdges = 0;
         let affectedEdges = 0;
 
         for (let i = 0; i < n; i++) {
@@ -220,7 +222,7 @@ export function applyModifiers(
                 if (i === j) continue;
                 if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
 
-                for (const zone of congestionZones) {
+                for (const zone of weatherZones) {
                     if (
                         segmentIntersectsCircle(
                             locations[i],
@@ -229,17 +231,30 @@ export function applyModifiers(
                             zone.radiusKm
                         )
                     ) {
-                        weightedDistances[i][j] *= zone.intensity;
-                        weightedDurations[i][j] *= zone.intensity;
-                        affectedEdges++;
+                        if (zone.fragile) {
+                            // Fragile item: completely avoid this zone (block edges)
+                            weightedDistances[i][j] = BLOCKED_DISTANCE;
+                            weightedDurations[i][j] = BLOCKED_DISTANCE;
+                            blockedEdges++;
+                            console.log(
+                                `[Modifiers] Blocked edge ${i}→${j} by fragile weather zone "${zone.id}" (${zone.type})`
+                            );
+                            break; // one fragile zone is enough to block
+                        } else {
+                            // Non-fragile: apply weather penalty multiplier
+                            const weatherMultiplier = zone.type === 'lightning' ? 2.0 : 1.5;
+                            weightedDistances[i][j] *= weatherMultiplier;
+                            weightedDurations[i][j] *= weatherMultiplier;
+                            affectedEdges++;
+                        }
                     }
                 }
             }
         }
 
         console.log(
-            `[Modifiers] Applied ${congestionZones.length} congestion zone(s) — ` +
-            `affected edges: ${affectedEdges}`
+            `[Modifiers] Applied ${weatherZones.length} weather zone(s) — ` +
+            `blocked edges: ${blockedEdges}, penalized edges: ${affectedEdges}`
         );
     }
 

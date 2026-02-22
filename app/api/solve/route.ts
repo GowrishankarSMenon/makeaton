@@ -57,9 +57,9 @@ export async function POST(request: NextRequest) {
 
     // Log restrictions for debugging
     const rb = (params as any).roadBlocks;
-    const cz = (params as any).congestionZones;
+    const cz = (params as any).weatherZones;
     if ((rb && rb.length > 0) || (cz && cz.length > 0)) {
-      console.log(`[Solve] Restrictions received: ${rb?.length || 0} road blocks, ${cz?.length || 0} congestion zones`);
+      console.log(`[Solve] Restrictions received: ${rb?.length || 0} road blocks, ${cz?.length || 0} weather zones`);
     }
 
     // Debug: confirm roadBlocks and locations before modifier
