@@ -261,12 +261,12 @@ export default function Home() {
 
                 {/* Expand sidebar button — visible when collapsed */}
                 {sidebarCollapsed && (
-                    <button className="sidebar-expand-btn" onClick={toggleSidebar} title="Expand sidebar">
+                    <button className="sidebar-expand-btn" onClick={toggleSidebar} title="Expand sidebar" suppressHydrationWarning>
                         <i className="fas fa-chevron-right"></i>
                     </button>
                 )}
 
-                <button id="mobile-sidebar-toggle" className="mobile-sidebar-toggle" onClick={toggleMobileSidebar}>
+                <button id="mobile-sidebar-toggle" className="mobile-sidebar-toggle" onClick={toggleMobileSidebar} suppressHydrationWarning>
                     <i className="fas fa-bars"></i>
                 </button>
 

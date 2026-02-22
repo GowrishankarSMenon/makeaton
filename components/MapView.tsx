@@ -22,10 +22,55 @@ const TILE_LAYERS = {
 };
 
 const ROUTE_COLORS = {
-    heldKarp: '#8b5cf6',
-    nearestNeighbor: '#f59e0b',
-    primary: '#6366f1',
+    heldKarp: '#e8733a',
+    nearestNeighbor: '#00b0ff',
+    primary: '#e8733a',
 };
+
+/* ── Delivery Driver Animation Helpers ─────────────────── */
+
+/** Compute cumulative distances along a polyline */
+function computeCumulativeDistances(latlngs: L.LatLng[]): number[] {
+    const distances: number[] = [0];
+    for (let i = 1; i < latlngs.length; i++) {
+        distances.push(distances[i - 1] + latlngs[i - 1].distanceTo(latlngs[i]));
+    }
+    return distances;
+}
+
+/** Interpolate a position along a polyline at a given fraction (0–1) */
+function interpolateAlongRoute(
+    latlngs: L.LatLng[],
+    cumDist: number[],
+    fraction: number
+): { latlng: L.LatLng; bearing: number } {
+    const totalDist = cumDist[cumDist.length - 1];
+    const targetDist = fraction * totalDist;
+
+    // Find the segment
+    let segIdx = 0;
+    for (let i = 1; i < cumDist.length; i++) {
+        if (cumDist[i] >= targetDist) {
+            segIdx = i - 1;
+            break;
+        }
+    }
+
+    const segStart = cumDist[segIdx];
+    const segEnd = cumDist[segIdx + 1] || segStart;
+    const segLen = segEnd - segStart;
+    const t = segLen > 0 ? (targetDist - segStart) / segLen : 0;
+
+    const lat = latlngs[segIdx].lat + t * (latlngs[segIdx + 1].lat - latlngs[segIdx].lat);
+    const lng = latlngs[segIdx].lng + t * (latlngs[segIdx + 1].lng - latlngs[segIdx].lng);
+
+    // Compute bearing for rotation
+    const dLat = latlngs[segIdx + 1].lat - latlngs[segIdx].lat;
+    const dLng = latlngs[segIdx + 1].lng - latlngs[segIdx].lng;
+    const bearing = (Math.atan2(dLng, dLat) * 180) / Math.PI;
+
+    return { latlng: L.latLng(lat, lng), bearing };
+}
 
 interface MapViewProps {
     locations: MapLocation[];
@@ -81,10 +126,117 @@ export default function MapView({
     const onLocationUpdateRef = useRef(onLocationUpdate);
     const roadDrawnForResultRef = useRef<string | null>(null);
 
+    // Delivery driver animation state
+    const driverMarkerRef = useRef<L.Marker | null>(null);
+    const driverAnimFrameRef = useRef<number | null>(null);
+    const routeLatLngsRef = useRef<L.LatLng[]>([]);
+    const routeCumDistRef = useRef<number[]>([]);
+
     // Keep refs updated
     onLocationAddRef.current = onLocationAdd;
     onLocationRemoveRef.current = onLocationRemove;
     onLocationUpdateRef.current = onLocationUpdate;
+
+    /** Stop any running delivery driver animation */
+    const stopDriverAnimation = useCallback(() => {
+        if (driverAnimFrameRef.current !== null) {
+            cancelAnimationFrame(driverAnimFrameRef.current);
+            driverAnimFrameRef.current = null;
+        }
+        if (driverMarkerRef.current && mapRef.current) {
+            mapRef.current.removeLayer(driverMarkerRef.current);
+            driverMarkerRef.current = null;
+        }
+        routeLatLngsRef.current = [];
+        routeCumDistRef.current = [];
+    }, []);
+
+    /** Start the looping delivery driver animation along a path */
+    const startDriverAnimation = useCallback(
+        (latlngs: [number, number][]) => {
+            stopDriverAnimation();
+            const map = mapRef.current;
+            if (!map || latlngs.length < 2) return;
+
+            // Convert to L.LatLng array
+            const path = latlngs.map(([lat, lng]) => L.latLng(lat, lng));
+            routeLatLngsRef.current = path;
+            routeCumDistRef.current = computeCumulativeDistances(path);
+
+            // Create driver marker — top-down scooter SVG (bird's-eye view)
+            const scooterSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="38" height="38">
+  <!-- rear wheel -->
+  <ellipse cx="32" cy="52" rx="8" ry="5" fill="#333" stroke="#555" stroke-width="1"/>
+  <!-- scooter body -->
+  <rect x="27" y="22" width="10" height="26" rx="5" fill="#e8733a"/>
+  <!-- seat -->
+  <rect x="26" y="30" width="12" height="8" rx="3" fill="#c45a28"/>
+  <!-- front wheel -->
+  <ellipse cx="32" cy="14" rx="7" ry="4.5" fill="#333" stroke="#555" stroke-width="1"/>
+  <!-- handlebar -->
+  <rect x="24" y="16" width="16" height="3" rx="1.5" fill="#555"/>
+  <!-- rider helmet (top-down circle) -->
+  <circle cx="32" cy="26" r="7" fill="#e8733a" stroke="#fff" stroke-width="2"/>
+  <circle cx="32" cy="26" r="4" fill="#c45a28"/>
+  <!-- delivery box -->
+  <rect x="26" y="38" width="12" height="10" rx="2" fill="#f09a4e" stroke="#e8733a" stroke-width="1"/>
+  <text x="32" y="45" text-anchor="middle" font-size="6" font-weight="bold" fill="#fff" font-family="sans-serif">⚡</text>
+</svg>`;
+            const driverHtml = `
+                <div class="delivery-driver-marker">
+                    <div class="delivery-driver-icon">
+                        ${scooterSvg}
+                    </div>
+                </div>
+            `;
+            const driverIcon = L.divIcon({
+                html: driverHtml,
+                className: '',
+                iconSize: [44, 44],
+                iconAnchor: [22, 22],
+            });
+
+            const marker = L.marker(path[0], {
+                icon: driverIcon,
+                zIndexOffset: 2000,
+                interactive: false,
+            }).addTo(map);
+
+            driverMarkerRef.current = marker;
+
+            // Animation loop: ~60 seconds for a full circuit, looping
+            const LOOP_DURATION_MS = 30000; // 30 seconds per loop
+            let startTime: number | null = null;
+
+            const animate = (timestamp: number) => {
+                if (!startTime) startTime = timestamp;
+                const elapsed = timestamp - startTime;
+                const fraction = (elapsed % LOOP_DURATION_MS) / LOOP_DURATION_MS;
+
+                const { latlng, bearing } = interpolateAlongRoute(
+                    routeLatLngsRef.current,
+                    routeCumDistRef.current,
+                    fraction
+                );
+
+                if (driverMarkerRef.current) {
+                    driverMarkerRef.current.setLatLng(latlng);
+                    // Rotate icon to face direction of travel
+                    const el = driverMarkerRef.current.getElement();
+                    if (el) {
+                        el.style.transformOrigin = 'center center';
+                        el.style.transform = `rotate(${bearing}deg)`;
+                    }
+                }
+
+                driverAnimFrameRef.current = requestAnimationFrame(animate);
+            };
+
+            driverAnimFrameRef.current = requestAnimationFrame(animate);
+        },
+        [stopDriverAnimation]
+    );
 
     // Initialize map
     useEffect(() => {
@@ -117,6 +269,10 @@ export default function MapView({
 
         return () => {
             ro.disconnect();
+            // Stop delivery driver animation
+            if (driverAnimFrameRef.current !== null) {
+                cancelAnimationFrame(driverAnimFrameRef.current);
+            }
             map.remove();
             mapRef.current = null;
         };
@@ -326,7 +482,8 @@ export default function MapView({
         routeLayersRef.current.forEach((l) => map.removeLayer(l));
         routeLayersRef.current = [];
         roadDrawnForResultRef.current = null;
-    }, [solveResult]);
+        stopDriverAnimation();
+    }, [solveResult, stopDriverAnimation]);
 
     // Draw polygon (straight-line) fallback when showPolygon is set
     useEffect(() => {
@@ -337,6 +494,7 @@ export default function MapView({
         routeLayersRef.current.forEach((l) => map.removeLayer(l));
         routeLayersRef.current = [];
         roadDrawnForResultRef.current = null;
+        stopDriverAnimation();
 
         if (solveResult.algorithm === 'compare') {
             if (solveResult.heldKarpRouteCoords && solveResult.heldKarpRouteCoords.length > 0) {
@@ -344,6 +502,8 @@ export default function MapView({
                     (c) => [c.lat, c.lng] as [number, number]
                 );
                 drawPolylineGroup(map, latlngs, ROUTE_COLORS.heldKarp, 5, '12 8');
+                // Animate on the first (Held-Karp) route
+                startDriverAnimation(latlngs);
             }
             if (solveResult.nnRouteCoords && solveResult.nnRouteCoords.length > 0) {
                 const latlngs = solveResult.nnRouteCoords.map(
@@ -362,8 +522,10 @@ export default function MapView({
             );
             drawPolylineGroup(map, latlngs, ROUTE_COLORS.primary, 4, '12 8');
             fitToRoute(map, latlngs);
+            startDriverAnimation(latlngs);
         }
-    }, [solveResult, showPolygon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [solveResult, showPolygon, stopDriverAnimation, startDriverAnimation]);
 
     // Draw road route when showRoad toggles
     useEffect(() => {
@@ -379,6 +541,7 @@ export default function MapView({
                 // Clear polygon routes
                 routeLayersRef.current.forEach((l) => map.removeLayer(l));
                 routeLayersRef.current = [];
+                stopDriverAnimation();
 
                 // Convert roadBlocks so the visualization can reroute displayed
                 // road geometry around blocks (the solver already avoided blocked
@@ -390,6 +553,8 @@ export default function MapView({
                     id: b.id,
                 }));
 
+                let animationPath: [number, number][] = [];
+
                 if (solveResult.algorithm === 'compare') {
                     const promises: Promise<void>[] = [];
 
@@ -397,6 +562,8 @@ export default function MapView({
                         promises.push(
                             getRoadRoute(solveResult.heldKarpRouteCoords, blocks).then((latlngs) => {
                                 drawPolylineGroup(map, latlngs, ROUTE_COLORS.heldKarp, 5);
+                                // Use first route (Held-Karp) for animation
+                                if (animationPath.length === 0) animationPath = latlngs;
                             })
                         );
                     }
@@ -404,6 +571,7 @@ export default function MapView({
                         promises.push(
                             getRoadRoute(solveResult.nnRouteCoords, blocks).then((latlngs) => {
                                 drawPolylineGroup(map, latlngs, ROUTE_COLORS.nearestNeighbor, 3, '10 8');
+                                if (animationPath.length === 0) animationPath = latlngs;
                             })
                         );
                     }
@@ -412,6 +580,12 @@ export default function MapView({
                     const roadLatlngs = await getRoadRoute(solveResult.routeCoords, blocks);
                     drawPolylineGroup(map, roadLatlngs, ROUTE_COLORS.primary, 4);
                     fitToRoute(map, roadLatlngs);
+                    animationPath = roadLatlngs;
+                }
+
+                // Start delivery driver animation along the drawn route
+                if (animationPath.length >= 2) {
+                    startDriverAnimation(animationPath);
                 }
 
                 roadDrawnForResultRef.current = resultId;
@@ -423,7 +597,8 @@ export default function MapView({
         };
 
         drawRoad();
-    }, [showRoad, solveResult, roadBlocks, onRoadRouteDrawn, onRoadRouteError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showRoad, solveResult, roadBlocks, onRoadRouteDrawn, onRoadRouteError, stopDriverAnimation, startDriverAnimation]);
 
     const drawPolylineGroup = useCallback(
         (

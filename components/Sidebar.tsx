@@ -115,6 +115,7 @@ export default function Sidebar({
                             className="btn btn-ghost btn-sm"
                             disabled={locations.length === 0}
                             onClick={onClearAll}
+                            suppressHydrationWarning
                         >
                             <i className="fas fa-trash-alt"></i> Clear All
                         </button>
@@ -127,7 +128,7 @@ export default function Sidebar({
                         <h2><i className="fas fa-microchip"></i> Algorithm</h2>
                     </div>
                     <div className="panel-body">
-                        <button className="algo-summary-btn" onClick={onOpenAlgorithmPicker}>
+                        <button className="algo-summary-btn" onClick={onOpenAlgorithmPicker} suppressHydrationWarning>
                             <div className="algo-summary-left">
                                 <div className={`algo-summary-icon${algoInfo.category === 'Quantum' ? ' quantum' : ''}`}>
                                     <i className={algoInfo.icon}></i>
@@ -149,7 +150,7 @@ export default function Sidebar({
                 <section className="panel">
                     <div className="panel-header">
                         <h2><i className="fas fa-sliders-h"></i> Logistics Parameters</h2>
-                        <button id="btn-reset-params" className="btn-icon" title="Reset to defaults" onClick={onResetParams}>
+                        <button id="btn-reset-params" className="btn-icon" title="Reset to defaults" onClick={onResetParams} suppressHydrationWarning>
                             <i className="fas fa-undo"></i>
                         </button>
                     </div>
@@ -225,6 +226,7 @@ export default function Sidebar({
                                         type="checkbox"
                                         checked={blockModeActive}
                                         onChange={(e) => onToggleBlockMode(e.target.checked)}
+                                        suppressHydrationWarning
                                     />
                                     <span className="mode-toggle-slider"></span>
                                     <span className="mode-toggle-label">{blockModeActive ? 'Placing' : 'Off'}</span>
@@ -253,6 +255,7 @@ export default function Sidebar({
                                                 className="restriction-remove"
                                                 title="Remove block"
                                                 onClick={() => onRemoveBlock(block.id)}
+                                                suppressHydrationWarning
                                             >
                                                 <i className="fas fa-times"></i>
                                             </button>
@@ -279,6 +282,7 @@ export default function Sidebar({
                                         type="checkbox"
                                         checked={congestionModeActive}
                                         onChange={(e) => onToggleCongestionMode(e.target.checked)}
+                                        suppressHydrationWarning
                                     />
                                     <span className="mode-toggle-slider"></span>
                                     <span className="mode-toggle-label">{congestionModeActive ? 'Placing' : 'Off'}</span>
@@ -343,6 +347,7 @@ export default function Sidebar({
                                                 className="restriction-remove"
                                                 title="Remove zone"
                                                 onClick={() => onRemoveCongestion(zone.id)}
+                                                suppressHydrationWarning
                                             >
                                                 <i className="fas fa-times"></i>
                                             </button>
@@ -356,6 +361,7 @@ export default function Sidebar({
                             <button
                                 className="btn btn-ghost btn-sm restriction-clear"
                                 onClick={onClearRestrictions}
+                                suppressHydrationWarning
                             >
                                 <i className="fas fa-eraser"></i> Clear All Restrictions
                             </button>
@@ -370,6 +376,7 @@ export default function Sidebar({
                         className="btn btn-solve"
                         disabled={locations.length < 2 || isLoading}
                         onClick={onSolve}
+                        suppressHydrationWarning
                     >
                         <span className={`btn-content${isLoading ? ' hidden' : ''}`}>
                             <i className="fas fa-bolt"></i>
@@ -386,6 +393,7 @@ export default function Sidebar({
                 {solveResult && (
                     <ResultsPanel
                         data={solveResult}
+                        fuelEfficiency={params.fuelEfficiency ?? 1.0}
                         showPolygonBtn={showPolygonBtn}
                         polygonShown={polygonShown}
                         roadRouteLoading={roadRouteLoading}
@@ -414,6 +422,7 @@ function SidebarHeader({ collapsed, onToggleCollapse }: { collapsed: boolean; on
                 className="sidebar-toggle"
                 title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 onClick={onToggleCollapse}
+                suppressHydrationWarning
             >
                 <i className={`fas fa-chevron-${collapsed ? 'right' : 'left'}`}></i>
             </button>
@@ -450,6 +459,7 @@ function LocationItem({
                     e.stopPropagation();
                     onRemove(index);
                 }}
+                suppressHydrationWarning
             >
                 <i className="fas fa-times"></i>
             </button>
@@ -492,6 +502,7 @@ function ParamSlider({
                 step={step}
                 value={value}
                 onChange={(e) => onChange(parseFloat(e.target.value))}
+                suppressHydrationWarning
             />
             <div className="param-range">
                 <span>{minLabel}</span>
@@ -504,21 +515,23 @@ function ParamSlider({
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function ResultsPanel({
     data,
+    fuelEfficiency,
     showPolygonBtn,
     polygonShown,
     roadRouteLoading,
     onShowPolygon,
 }: {
     data: SolveResult;
+    fuelEfficiency: number;
     showPolygonBtn: boolean;
     polygonShown: boolean;
     roadRouteLoading: boolean;
     onShowPolygon: () => void;
 }) {
     if (data.algorithm === 'compare') {
-        return <CompareResults data={data} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
+        return <CompareResults data={data} fuelEfficiency={fuelEfficiency} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
     }
-    return <SingleResults data={data} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
+    return <SingleResults data={data} fuelEfficiency={fuelEfficiency} showPolygonBtn={showPolygonBtn} polygonShown={polygonShown} roadRouteLoading={roadRouteLoading} onShowPolygon={onShowPolygon} />;
 }
 
 function PolygonRouteButton({
@@ -539,6 +552,7 @@ function PolygonRouteButton({
             className={`btn btn-road-route${shown ? ' road-shown' : ''}`}
             disabled={shown || loading}
             onClick={onClick}
+            suppressHydrationWarning
         >
             <span className={`btn-content${loading ? ' hidden' : ''}`}>
                 <i className={`fas fa-${shown ? 'check-circle' : 'draw-polygon'}`}></i>
@@ -552,11 +566,15 @@ function PolygonRouteButton({
     );
 }
 
-function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
+// Base fuel rate: ₹6 per km at efficiency 1.0×
+const BASE_FUEL_RATE_PER_KM = 6;
+
+function SingleResults({ data, fuelEfficiency, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; fuelEfficiency: number; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
     const solution = data.solution;
     if (!solution) return null;
 
     const distKm = (solution.distance / 1000).toFixed(2);
+    const fuelCost = (parseFloat(distKm) * BASE_FUEL_RATE_PER_KM * fuelEfficiency).toFixed(2);
     const tour: number[] = solution.tour;
     const qm = solution.quantumMetrics;
 
@@ -572,16 +590,40 @@ function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, o
                         <div className="result-value">{distKm} km</div>
                     </div>
                     <div className="result-card">
+                        <div className="result-label"><i className="fas fa-gas-pump" style={{ marginRight: 4 }}></i>Fuel Cost</div>
+                        <div className="result-value warning">₹{fuelCost}</div>
+                    </div>
+                    <div className="result-card">
                         <div className="result-label">Solver</div>
                         <div className="result-value small">{solution.solverName}</div>
                     </div>
                     <div className="result-card">
-                        <div className="result-label">Matrix Time</div>
-                        <div className="result-value small success">{data.metadata.matrixTimeMs} ms</div>
-                    </div>
-                    <div className="result-card">
                         <div className="result-label">Solve Time</div>
                         <div className="result-value small success">{data.metadata.solveTimeMs} ms</div>
+                    </div>
+                </div>
+
+                {/* Fuel cost breakdown */}
+                <div className="result-card full-width" style={{ marginTop: '6px' }}>
+                    <div className="result-label"><i className="fas fa-receipt" style={{ marginRight: 4 }}></i>Fuel Cost Breakdown</div>
+                    <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Distance</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{distKm} km</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Base Rate</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>₹{BASE_FUEL_RATE_PER_KM}/km</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Efficiency Multiplier</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: fuelEfficiency > 1.0 ? '#ff1744' : fuelEfficiency < 1.0 ? '#00c853' : 'inherit' }}>{fuelEfficiency.toFixed(1)}×</span>
+                        </div>
+                        <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '2px 0' }}></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            <span>Estimated Fuel Cost</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-1)' }}>₹{fuelCost}</span>
+                        </div>
                     </div>
                 </div>
 
@@ -776,13 +818,15 @@ function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, o
     );
 }
 
-function CompareResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
+function CompareResults({ data, fuelEfficiency, showPolygonBtn, polygonShown, roadRouteLoading, onShowPolygon }: { data: SolveResult; fuelEfficiency: number; showPolygonBtn: boolean; polygonShown: boolean; roadRouteLoading: boolean; onShowPolygon: () => void }) {
     const hk = data.heldKarp;
     const nn = data.nearestNeighbor;
     if (!nn) return null;
 
     const hkDist = hk?.skipped ? 'N/A' : ((hk?.distance ?? 0) / 1000).toFixed(2);
     const nnDist = (nn.distance / 1000).toFixed(2);
+    const hkFuelCost = hk?.skipped ? 'N/A' : (parseFloat(hkDist as string) * BASE_FUEL_RATE_PER_KM * fuelEfficiency).toFixed(2);
+    const nnFuelCost = (parseFloat(nnDist) * BASE_FUEL_RATE_PER_KM * fuelEfficiency).toFixed(2);
 
     const maxDist = Math.max(hk?.skipped ? nn.distance : (hk?.distance ?? 0), nn.distance);
     const hkPct = hk?.skipped ? 0 : ((hk?.distance ?? 0) / maxDist) * 100;
@@ -804,6 +848,14 @@ function CompareResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, 
                         <div className="result-value warning">{nnDist} km</div>
                     </div>
                     <div className="result-card">
+                        <div className="result-label"><i className="fas fa-gas-pump" style={{ marginRight: 4 }}></i>HK Fuel Cost</div>
+                        <div className="result-value small">{hk?.skipped ? 'N/A' : `₹${hkFuelCost}`}</div>
+                    </div>
+                    <div className="result-card">
+                        <div className="result-label"><i className="fas fa-gas-pump" style={{ marginRight: 4 }}></i>NN Fuel Cost</div>
+                        <div className="result-value small warning">₹{nnFuelCost}</div>
+                    </div>
+                    <div className="result-card">
                         <div className="result-label">Suboptimality Gap</div>
                         <div className={`result-value${data.gapPercent !== 'N/A' ? ' warning' : ''}`}>{data.gapPercent}</div>
                     </div>
@@ -811,6 +863,12 @@ function CompareResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, 
                         <div className="result-label">Total Time</div>
                         <div className="result-value small success">{data.metadata.totalTimeMs} ms</div>
                     </div>
+                </div>
+
+                {/* Fuel cost note */}
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <i className="fas fa-info-circle"></i>
+                    Base rate ₹{BASE_FUEL_RATE_PER_KM}/km × efficiency {fuelEfficiency.toFixed(1)}×
                 </div>
 
                 <div className="compare-section">
