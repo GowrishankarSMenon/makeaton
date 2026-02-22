@@ -139,7 +139,7 @@ def decode_solution(result, tsp_data):
 
 
 def _decode_reduced(result, tsp_data):
-    """Decode solution from reduced (fixed start) QUBO."""
+    """Decode solution from reduced (fixed start) QUBO with tour repair."""
     n = tsp_data["num_cities"]
     start_node = tsp_data["start_node"]
     cities = tsp_data["cities"]
@@ -147,16 +147,23 @@ def _decode_reduced(result, tsp_data):
 
     try:
         x = result.x
-        x_matrix = np.array(x[: m * m]).reshape(m, m)
+        x_matrix = np.array(x[: m * m], dtype=float).reshape(m, m)
 
+        # Naive argmax decode
         tour = [start_node]
         for p in range(m):
-            city_idx = np.argmax(x_matrix[:, p])
+            city_idx = int(np.argmax(x_matrix[:, p]))
             tour.append(cities[city_idx])
         tour.append(start_node)
 
         cities_visited = set(tour[:-1])
         is_feasible = len(cities_visited) == n and len(tour) - 1 == n
+
+        if not is_feasible:
+            # Greedy repair: use quantum scores as preferences
+            tour = _repair_reduced_tour(x_matrix, start_node, cities, n, tsp_data)
+            is_feasible = True
+
     except Exception:
         tour = [start_node] + cities + [start_node]
         is_feasible = False
@@ -169,21 +176,26 @@ def _decode_reduced(result, tsp_data):
 
 
 def _decode_full(result, tsp_data):
-    """Decode from full n² encoding."""
+    """Decode from full n² encoding with tour repair."""
     n = tsp_data["num_cities"]
 
     try:
         x = result.x
-        x_matrix = np.array(x[: n * n]).reshape(n, n)
+        x_matrix = np.array(x[: n * n], dtype=float).reshape(n, n)
 
         tour = []
         for p in range(n):
-            city_at_p = np.argmax(x_matrix[:, p])
-            tour.append(int(city_at_p))
+            city_at_p = int(np.argmax(x_matrix[:, p]))
+            tour.append(city_at_p)
         tour.append(tour[0])
 
         cities_visited = set(tour[:-1])
         is_feasible = len(cities_visited) == n and len(tour) - 1 == n
+
+        if not is_feasible:
+            tour = _repair_full_tour(x_matrix, n, tsp_data)
+            is_feasible = True
+
     except Exception:
         tour = list(range(n)) + [0]
         is_feasible = False
@@ -193,3 +205,140 @@ def _decode_full(result, tsp_data):
         "is_feasible": is_feasible,
         "energy": float(result.fval) if hasattr(result, "fval") else None,
     }
+
+
+def _repair_reduced_tour(x_matrix, start_node, cities, n, tsp_data):
+    """
+    Repair a noisy reduced-encoding quantum result into a valid tour.
+    x_matrix is m×m where m = n-1 (excluding start_node).
+    """
+    m = len(cities)
+
+    # Rank (city_index, position) pairs by quantum preference score
+    scored = []
+    for ci, city in enumerate(cities):
+        for p in range(m):
+            scored.append((x_matrix[ci, p], ci, p))
+    scored.sort(reverse=True)
+
+    assigned_cities = set()
+    assigned_positions = set()
+    slots = [None] * m
+
+    for score, ci, p in scored:
+        if ci not in assigned_cities and p not in assigned_positions:
+            slots[p] = cities[ci]
+            assigned_cities.add(ci)
+            assigned_positions.add(p)
+        if len(assigned_cities) == m:
+            break
+
+    # Fill gaps with nearest-neighbor
+    missing = [ci for ci in range(m) if ci not in assigned_cities]
+    open_pos = [p for p in range(m) if p not in assigned_positions]
+    for ci, p in zip(missing, open_pos):
+        slots[p] = cities[ci]
+
+    return [start_node] + slots + [start_node]
+
+
+def _repair_full_tour(x_matrix, n, tsp_data):
+    """
+    Repair a noisy full-encoding quantum result into a valid tour.
+    x_matrix is n×n.
+    """
+    scored = []
+    for city in range(n):
+        for p in range(n):
+            scored.append((x_matrix[city, p], city, p))
+    scored.sort(reverse=True)
+
+    assigned_cities = set()
+    assigned_positions = set()
+    slots = [None] * n
+
+    for score, city, p in scored:
+        if city not in assigned_cities and p not in assigned_positions:
+            slots[p] = city
+            assigned_cities.add(city)
+            assigned_positions.add(p)
+        if len(assigned_cities) == n:
+            break
+
+    missing = [c for c in range(n) if c not in assigned_cities]
+    open_pos = [p for p in range(n) if p not in assigned_positions]
+    for city, p in zip(missing, open_pos):
+        slots[p] = city
+
+    return slots + [slots[0]]
+
+
+# ---------------------------------------------------------------------------
+# Warm-start: convert a classical tour to a QAOA initial state
+# ---------------------------------------------------------------------------
+
+def tour_to_initial_state(tour, tsp_data):
+    """
+    Convert a classical tour into a QuantumCircuit that prepares the
+    corresponding computational basis state.  This gives QAOA a "warm
+    start" — instead of exploring from uniform superposition, it begins
+    near a known-good solution and only needs to search the neighbourhood.
+
+    Returns (QuantumCircuit, binary_vector).
+    """
+    from qiskit.circuit import QuantumCircuit
+
+    num_qubits = tsp_data["num_qubits"]
+
+    if tsp_data.get("reduced", False):
+        binary = _tour_to_binary_reduced(tour, tsp_data)
+    else:
+        binary = _tour_to_binary_full(tour, tsp_data)
+
+    # Build circuit: X gate wherever binary[i] == 1
+    qc = QuantumCircuit(num_qubits)
+    for i in range(min(len(binary), num_qubits)):
+        if binary[i] == 1:
+            qc.x(i)
+
+    print(
+        f"[WarmStart] Built initial state for {num_qubits} qubits, "
+        f"ones={sum(binary[:num_qubits])}",
+        flush=True,
+    )
+    return qc, binary
+
+
+def _tour_to_binary_reduced(tour, tsp_data):
+    """Convert a tour to the binary vector for reduced (n-1)² encoding."""
+    start_node = tsp_data["start_node"]
+    cities = tsp_data["cities"]
+    m = len(cities)  # n - 1
+
+    # Strip start_node and closing duplicate
+    inner = [c for c in tour if c != start_node]
+    if len(inner) > m:
+        inner = inner[:m]
+
+    binary = [0] * (m * m)
+    city_to_idx = {c: idx for idx, c in enumerate(cities)}
+
+    for p, city in enumerate(inner):
+        if city in city_to_idx and p < m:
+            ci = city_to_idx[city]
+            binary[ci * m + p] = 1
+
+    return binary
+
+
+def _tour_to_binary_full(tour, tsp_data):
+    """Convert a tour to the binary vector for full n² encoding."""
+    n = tsp_data["num_cities"]
+    inner = tour[:-1] if len(tour) > n else tour
+
+    binary = [0] * (n * n)
+    for p, city in enumerate(inner):
+        if city < n and p < n:
+            binary[city * n + p] = 1
+
+    return binary

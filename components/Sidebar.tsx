@@ -24,10 +24,10 @@ interface SidebarProps {
     onSolve: () => void;
     solveResult: SolveResult | null;
     isLoading: boolean;
-    showRoadRouteBtn: boolean;
-    roadRouteShown: boolean;
+    showPolygonBtn: boolean;
+    polygonShown: boolean;
     roadRouteLoading: boolean;
-    onShowRoadRoute: () => void;
+    onShowPolygon: () => void;
 
     // Restrictions
     roadBlocks: RoadBlock[];
@@ -46,6 +46,8 @@ const ALGORITHMS = [
     { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · TS≤18 · C++⚡ larger n' },
     { value: 'nearest-neighbor', name: 'Nearest Neighbor', desc: 'Greedy · O(n²) · Any n' },
     { value: 'qaoa', name: 'Quantum QAOA', desc: 'Hybrid · Qiskit · n≤8' },
+    { value: 'hybrid-qhk', name: 'Hybrid QHK', desc: 'Quantum×Held-Karp · Best of both' },
+    { value: 'prewarm-hk', name: 'Pre-Warm HK', desc: 'HK→QAOA warm-start · Optimal seed' },
     { value: 'compare', name: 'Compare Mode', desc: 'Both · Gap Analysis' },
 ];
 
@@ -662,6 +664,66 @@ function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, o
                 {qm && (
                     <div className="result-card full-width" style={{ marginTop: '8px' }}>
                         <div className="result-label"><i className="fas fa-atom"></i> Quantum Metrics</div>
+
+                        {/* IBM Backend badge */}
+                        {qm.backend && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', marginBottom: '4px' }}>
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase' as const,
+                                    letterSpacing: '0.5px',
+                                    background:
+                                        qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.15)' :
+                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.15)' :
+                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.15)' :
+                                        'rgba(148,163,184,0.15)',
+                                    color:
+                                        qm.executionMode === 'real_hardware' ? '#22c55e' :
+                                        qm.executionMode === 'ibm_simulator' ? '#3b82f6' :
+                                        qm.executionMode === 'local_fallback' ? '#f59e0b' :
+                                        '#94a3b8',
+                                    border: `1px solid ${
+                                        qm.executionMode === 'real_hardware' ? 'rgba(34,197,94,0.3)' :
+                                        qm.executionMode === 'ibm_simulator' ? 'rgba(59,130,246,0.3)' :
+                                        qm.executionMode === 'local_fallback' ? 'rgba(245,158,11,0.3)' :
+                                        'rgba(148,163,184,0.3)'
+                                    }`,
+                                }}>
+                                    <i className={`fas fa-${
+                                        qm.executionMode === 'real_hardware' ? 'microchip' :
+                                        qm.executionMode === 'ibm_simulator' ? 'cloud' :
+                                        qm.executionMode === 'local_fallback' ? 'exclamation-triangle' :
+                                        'desktop'
+                                    }`}></i>
+                                    {qm.executionMode === 'real_hardware' ? 'Real Hardware' :
+                                     qm.executionMode === 'ibm_simulator' ? 'IBM Cloud Sim' :
+                                     qm.executionMode === 'local_fallback' ? 'Local Fallback' :
+                                     'Local Simulator'}
+                                </span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                    {qm.backend}
+                                </span>
+                            </div>
+                        )}
+                        {qm.fallbackReason && (
+                            <div style={{
+                                fontSize: '10px',
+                                color: '#f59e0b',
+                                marginBottom: '4px',
+                                padding: '4px 6px',
+                                background: 'rgba(245,158,11,0.08)',
+                                borderRadius: '4px',
+                            }}>
+                                <i className="fas fa-info-circle"></i> Fallback: {qm.fallbackReason}
+                            </div>
+                        )}
+
                         <div className="result-grid" style={{ marginTop: '6px' }}>
                             <div className="result-card">
                                 <div className="result-label">Qubits</div>
@@ -680,6 +742,92 @@ function SingleResults({ data, showPolygonBtn, polygonShown, roadRouteLoading, o
                                 <div className="result-value">{qm.optimizerIterations || 'N/A'}</div>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* Hybrid QHK Phase Breakdown */}
+                {solution.phases && (
+                    <div className="result-card full-width" style={{ marginTop: '8px' }}>
+                        <div className="result-label"><i className="fas fa-layer-group"></i> Hybrid Pipeline Phases</div>
+                        <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {/* Phase 0: Pre-Warm (HK or NN) */}
+                            {solution.phases.prewarm && (
+                                <div style={{
+                                    padding: '6px 8px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(251,191,36,0.08)',
+                                    border: '1px solid rgba(251,191,36,0.2)',
+                                }}>
+                                    <div style={{ fontSize: '10px', fontWeight: 600, color: '#f59e0b', marginBottom: '3px' }}>
+                                        <i className="fas fa-fire"></i> Phase 0 — {solution.phases.prewarm.method} Pre-Warm
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                        <span>{solution.phases.prewarm.timeMs} ms</span>
+                                        <span>{(solution.phases.prewarm.distance / 1000).toFixed(1)} km</span>
+                                        <span style={{ color: '#f59e0b' }}>seed for QAOA</span>
+                                    </div>
+                                </div>
+                            )}
+                            {/* Phase 1: Quantum */}
+                            <div style={{
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(139,92,246,0.08)',
+                                border: '1px solid rgba(139,92,246,0.2)',
+                            }}>
+                                <div style={{ fontSize: '10px', fontWeight: 600, color: '#8b5cf6', marginBottom: '3px' }}>
+                                    <i className="fas fa-atom"></i> Phase 1 — Quantum Exploration (QAOA)
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    <span>{solution.phases.quantum.qubits} qubits</span>
+                                    <span>depth {solution.phases.quantum.circuitDepth}</span>
+                                    <span>{solution.phases.quantum.timeMs} ms</span>
+                                    <span>{(solution.phases.quantum.distance / 1000).toFixed(1)} km</span>
+                                </div>
+                            </div>
+                            {/* Phase 2: Held-Karp Refinement */}
+                            <div style={{
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(99,102,241,0.08)',
+                                border: '1px solid rgba(99,102,241,0.2)',
+                            }}>
+                                <div style={{ fontSize: '10px', fontWeight: 600, color: '#6366f1', marginBottom: '3px' }}>
+                                    <i className="fas fa-brain"></i> Phase 2 — Held-Karp Window Refinement
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    <span>window={solution.phases.refinement.windowSize}</span>
+                                    <span>{solution.phases.refinement.windowsApplied} passes</span>
+                                    <span>{solution.phases.refinement.timeMs} ms</span>
+                                    <span style={{ color: solution.phases.refinement.improvement > 0 ? '#22c55e' : 'inherit' }}>
+                                        {solution.phases.refinement.improvement > 0 ? `↓${solution.phases.refinement.improvement}%` : 'no change'}
+                                    </span>
+                                </div>
+                            </div>
+                            {/* Phase 3: 2-opt */}
+                            <div style={{
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(34,197,94,0.08)',
+                                border: '1px solid rgba(34,197,94,0.2)',
+                            }}>
+                                <div style={{ fontSize: '10px', fontWeight: 600, color: '#22c55e', marginBottom: '3px' }}>
+                                    <i className="fas fa-exchange-alt"></i> Phase 3 — 2-opt Local Search
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    <span>{solution.phases.twoOpt.swaps} swaps</span>
+                                    <span>{solution.phases.twoOpt.timeMs} ms</span>
+                                    <span style={{ color: solution.phases.twoOpt.improvement > 0 ? '#22c55e' : 'inherit' }}>
+                                        {solution.phases.twoOpt.improvement > 0 ? `↓${solution.phases.twoOpt.improvement}%` : 'no change'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {qm?.totalQuantumTimeMs != null && qm?.totalClassicalTimeMs != null && (
+                            <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                                ⚛ Quantum: {qm.totalQuantumTimeMs} ms &nbsp;|&nbsp; 🖥 Classical: {qm.totalClassicalTimeMs} ms
+                            </div>
+                        )}
                     </div>
                 )}
 

@@ -21,6 +21,9 @@ export interface SolverResult {
     reason?: string;
 }
 
+// Must match the value in modifiers.ts — edges with cost >= this are blocked
+const BLOCKED_THRESHOLD = 1e9;
+
 export function heldKarp(dist: number[][], startNode: number = 0): SolverResult {
     const n = dist.length;
 
@@ -42,7 +45,10 @@ export function heldKarp(dist: number[][], startNode: number = 0): SolverResult 
     }
 
     const FULL_MASK = (1 << n) - 1;
-    const INF = Number.MAX_SAFE_INTEGER;
+    // Use a value larger than any possible sum of blocked edges so blocked
+    // paths always lose to non-blocked ones. n * BLOCKED_THRESHOLD guarantees
+    // that even a full tour of blocked edges sums to less than INF.
+    const INF = (n + 1) * BLOCKED_THRESHOLD;
 
     const dp = Array.from({ length: 1 << n }, () => new Float64Array(n).fill(INF));
     const parent = Array.from({ length: 1 << n }, () => new Int8Array(n).fill(-1));

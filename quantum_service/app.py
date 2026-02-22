@@ -10,14 +10,19 @@ Receives a distance matrix from the Node.js server, runs the quantum pipeline:
 Runs on port 5001.
 """
 
+import os
 import sys
 import traceback
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load .env from the quantum_service directory
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from tsp_qubo import build_tsp_qubo, decode_solution
-from qaoa_solver import solve_with_qaoa
+from qaoa_solver import solve_with_qaoa, reset_ibm_service
 
 app = Flask(__name__)
 CORS(app)
@@ -40,34 +45,50 @@ def solve():
         n = len(dist_matrix)
         if n < 2:
             return jsonify({"error": "At least 2 locations required"}), 400
-        if n > 8:
-            return jsonify({"error": f"QAOA is limited to 8 locations (got {n}). n²={n*n} qubits."}), 400
+        if n > 10:
+            return jsonify({"error": f"QAOA limited to 10 locations (got {n}). n²={n*n} qubits."}), 400
+
+        warm_start_tour = data.get("warmStartTour", None)
 
         print(f"[QAOA] Solving TSP for {n} cities ({n*n} qubits)...", flush=True)
 
         # Step 1: Build QUBO
-        tsp_data = build_tsp_qubo(dist_matrix, start_node=start_node)
-        print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits (reduced={tsp_data.get('reduced', False)})", flush=True)
+        tsp_data = build_tsp_qubo(dist_matrix)
+        tsp_data["original_distances"] = dist_matrix
+        print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits", flush=True)
+
+        # Step 1.5: Build warm-start initial state from classical tour
+        warm_start_state = None
+        if warm_start_tour and len(warm_start_tour) >= n:
+            try:
+                from tsp_qubo import tour_to_initial_state
+                warm_start_state, _ = tour_to_initial_state(warm_start_tour, tsp_data)
+                print(f"[QAOA] ⚡ Warm-start from classical tour: {warm_start_tour}", flush=True)
+            except Exception as ws_err:
+                print(f"[QAOA] Warm-start build failed (continuing without): {ws_err}", flush=True)
 
         # Step 2: Solve with QAOA
-        # Use fewer reps for larger problems to keep runtime manageable
+        # Reps=1 keeps circuit shallow. maxiter=1 for speed (single IBM job).
         reps = 1
-        max_iter = 20
+        max_iter = 1
 
-        qaoa_result = solve_with_qaoa(tsp_data["qubo"], reps=reps, max_iterations=max_iter)
+        qaoa_result = solve_with_qaoa(
+            tsp_data["qubo"], reps=reps, max_iterations=max_iter,
+            warm_start_state=warm_start_state,
+        )
         print(f"[QAOA] Solved in {qaoa_result['qaoa_time_ms']} ms", flush=True)
 
         # Step 3: Decode to tour
         decoded = decode_solution(qaoa_result["result"], tsp_data)
 
-        # Tour from reduced QUBO already starts at start_node;
-        # rotate as safety net for full-encoding fallback.
+        # If tour doesn't start at startNode, rotate it
         tour = decoded["tour"]
         if tour[0] != start_node and start_node in tour:
-            cycle = tour[:-1]
+            # Rotate tour so it starts at startNode
+            cycle = tour[:-1]  # remove closing node
             idx = cycle.index(start_node)
             cycle = cycle[idx:] + cycle[:idx]
-            cycle.append(cycle[0])
+            cycle.append(cycle[0])  # close the tour
             tour = cycle
 
         # Calculate actual distance with original matrix
@@ -88,6 +109,10 @@ def solve():
                 "qaoaEnergy": decoded["energy"],
                 "solveTimeMs": qaoa_result["qaoa_time_ms"],
                 "energyHistory": qaoa_result.get("energy_history", []),
+                "backend": qaoa_result.get("backend", "unknown"),
+                "executionMode": qaoa_result.get("execution_mode", "local_simulator"),
+                "fallbackReason": qaoa_result.get("ibm_fallback_reason", None),
+                "warmStartUsed": warm_start_state is not None,
             },
         }
 
@@ -101,9 +126,49 @@ def solve():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "service": "quantum-solver"})
+    quantum_mode = os.environ.get("QUANTUM_MODE", "local")
+    ibm_token_set = bool(os.environ.get("IBM_QUANTUM_TOKEN", "").strip())
+    return jsonify({
+        "status": "ok",
+        "service": "quantum-solver",
+        "quantumMode": quantum_mode,
+        "ibmTokenConfigured": ibm_token_set,
+    })
+
+
+@app.route("/ibm-status", methods=["GET"])
+def ibm_status():
+    """Check IBM Quantum connectivity and available backends."""
+    try:
+        from qaoa_solver import _get_ibm_service
+        service, error = _get_ibm_service()
+        if service is None:
+            return jsonify({
+                "connected": False,
+                "error": error,
+            })
+
+        backends = service.backends(operational=True)
+        backend_list = [
+            {"name": b.name, "qubits": b.num_qubits, "simulator": b.simulator}
+            for b in backends[:10]  # limit to 10
+        ]
+        return jsonify({
+            "connected": True,
+            "backends": backend_list,
+        })
+    except Exception as e:
+        return jsonify({"connected": False, "error": str(e)}), 500
+
+
+@app.route("/reset-ibm", methods=["POST"])
+def reset_ibm():
+    """Reset the cached IBM service (e.g. after updating token)."""
+    reset_ibm_service()
+    return jsonify({"status": "ok", "message": "IBM service cache cleared"})
 
 
 if __name__ == "__main__":
-    print("[QAOA] Quantum solver service starting on port 5001...", flush=True)
+    mode = os.environ.get("QUANTUM_MODE", "local")
+    print(f"[QAOA] Quantum solver service starting on port 5001 (mode={mode})...", flush=True)
     app.run(host="0.0.0.0", port=5001, debug=False)

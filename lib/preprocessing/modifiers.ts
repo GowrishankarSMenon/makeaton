@@ -59,22 +59,25 @@ function haversineKm(
 
 /**
  * Approximate minimum distance (km) from point P to the line segment A→B.
- * Uses a flat-earth approximation (lat/lng treated as Cartesian) which
- * is accurate enough for route-level distances.
+ * Converts lat/lng to a flat km-based coordinate system first, then
+ * computes the point-to-segment distance entirely in km space.
  */
 function pointToSegmentDistKm(
     p: { lat: number; lng: number },
     a: { lat: number; lng: number },
     b: { lat: number; lng: number }
 ): number {
-    // Convert to approximate km-based coordinates
-    const cosLat = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180));
-    const ax = a.lng * cosLat;
-    const ay = a.lat;
-    const bx = b.lng * cosLat;
-    const by = b.lat;
-    const px = p.lng * cosLat;
-    const py = p.lat;
+    // Convert to km-based coordinates (equirectangular projection)
+    const DEG_TO_KM = 111.32;
+    const midLat = (a.lat + b.lat + p.lat) / 3;
+    const cosLat = Math.cos(midLat * (Math.PI / 180));
+
+    const ax = a.lng * cosLat * DEG_TO_KM;
+    const ay = a.lat * DEG_TO_KM;
+    const bx = b.lng * cosLat * DEG_TO_KM;
+    const by = b.lat * DEG_TO_KM;
+    const px = p.lng * cosLat * DEG_TO_KM;
+    const py = p.lat * DEG_TO_KM;
 
     const dx = bx - ax;
     const dy = by - ay;
@@ -89,11 +92,10 @@ function pointToSegmentDistKm(
     const closestX = ax + t * dx;
     const closestY = ay + t * dy;
 
-    // Convert back to km (1 degree latitude ≈ 111.32 km)
-    const distDeg = Math.sqrt(
+    // Already in km, just compute Euclidean distance
+    return Math.sqrt(
         (px - closestX) * (px - closestX) + (py - closestY) * (py - closestY)
     );
-    return distDeg * 111.32;
 }
 
 /**
@@ -110,7 +112,12 @@ function segmentIntersectsCircle(
 
 // A very large distance value that won't overflow when summed in C++ solver
 // (1 billion meters = 1 million km — larger than any real route)
-const BLOCKED_DISTANCE = 1e9;
+export const BLOCKED_DISTANCE = 1e9;
+
+// Effective blocking radius for road blocks (km).
+// 0.3 km (300 m) — tight enough to block only edges that truly cross
+// the block point, without nuking half the graph for nearby stops.
+export const BLOCK_RADIUS_KM = 0.3;
 
 export function applyModifiers(
     distances: number[][],
@@ -158,10 +165,12 @@ export function applyModifiers(
         }
     }
 
-    // Apply road blocks: block ALL edges whose path passes near the block
-    // A road block has an effective radius of 2km — any edge passing within 2km is blocked
+    // Apply road blocks: block ALL edges whose path passes near the block.
+    // An edge i→j is blocked if:
+    //   (a) the segment intersects the block circle (flat-earth approx), OR
+    //   (b) either endpoint i or j lies inside the block radius (haversine, exact).
     if (locations && roadBlocks.length > 0) {
-        const BLOCK_RADIUS_KM = 2.0;
+        let totalBlocked = 0;
 
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < n; j++) {
@@ -169,16 +178,27 @@ export function applyModifiers(
                 if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
 
                 for (const block of roadBlocks) {
-                    if (
-                        segmentIntersectsCircle(
-                            locations[i],
-                            locations[j],
-                            block,
-                            BLOCK_RADIUS_KM
-                        )
-                    ) {
+                    // (a) Segment-to-circle intersection (flat-earth approx)
+                    const segmentHit = segmentIntersectsCircle(
+                        locations[i],
+                        locations[j],
+                        block,
+                        BLOCK_RADIUS_KM
+                    );
+
+                    // (b) Either endpoint inside block radius (haversine, exact)
+                    const endpointHit =
+                        haversineKm(locations[i], block) <= BLOCK_RADIUS_KM ||
+                        haversineKm(locations[j], block) <= BLOCK_RADIUS_KM;
+
+                    if (segmentHit || endpointHit) {
                         weightedDistances[i][j] = BLOCKED_DISTANCE;
                         weightedDurations[i][j] = BLOCKED_DISTANCE;
+                        totalBlocked++;
+                        console.log(
+                            `[Modifiers] Blocked edge ${i}→${j} by roadBlock "${block.id}"` +
+                            ` (segment=${segmentHit}, endpoint=${endpointHit})`
+                        );
                         break; // one block is enough to block this edge
                     }
                 }
@@ -187,7 +207,7 @@ export function applyModifiers(
 
         console.log(
             `[Modifiers] Applied ${roadBlocks.length} road block(s) — ` +
-            `blocked edges: ${countBlocked(weightedDistances, n)}`
+            `total blocked edges: ${totalBlocked}`
         );
     }
 
