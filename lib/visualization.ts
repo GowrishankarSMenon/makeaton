@@ -17,9 +17,11 @@ export interface RoadBlockForRoute {
  * Fixed radius (km) for checking if a drawn road route geometry
  * passes near a road block. Used for visual route rendering —
  * the solver uses the same radius for edge detection.
- * 0.30 km (300 m) matches the solver's detection radius.
+ * 0.05 km (50 m) matches the solver's detection radius.
+ * Tight enough to flag only routes ON the blocked road, not
+ * parallel roads 100m+ away.
  */
-const ROUTE_BLOCK_DETECTION_KM = 0.30;
+const ROUTE_BLOCK_DETECTION_KM = 0.05;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
