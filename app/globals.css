@@ -76,11 +76,13 @@ body {
   flex: 1;
   height: 100%;
   z-index: 1;
+  transition: margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── Sidebar ────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
   height: 100vh;
   background: var(--bg-glass);
   backdrop-filter: blur(24px) saturate(180%);
@@ -89,12 +91,15 @@ body {
   display: flex;
   flex-direction: column;
   z-index: 1000;
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              min-width 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.3s ease;
   overflow: hidden;
 }
 
 .sidebar.collapsed {
-  transform: translateX(-100%);
+  width: 0;
+  min-width: 0;
   opacity: 0;
   pointer-events: none;
 }
@@ -1301,6 +1306,593 @@ body {
   display: none !important;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   Algorithm Picker — Center Modal with Snap Transition
+   ═══════════════════════════════════════════════════════════ */
+
+/* Overlay */
+.algo-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  background: rgba(10, 14, 26, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.algo-picker-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Modal */
+.algo-picker-modal {
+  width: 660px;
+  max-width: 94vw;
+  max-height: 88vh;
+  border-radius: var(--radius-xl);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(99, 102, 241, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.88) translateY(30px);
+  opacity: 0;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.25s ease;
+}
+
+.algo-picker-modal.open {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+/* Header */
+.algo-picker-header {
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.algo-picker-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.algo-picker-title i {
+  color: var(--accent-3);
+  font-size: 18px;
+}
+
+.algo-picker-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.algo-picker-close:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Body — two columns */
+.algo-picker-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+@media (max-width: 600px) {
+  .algo-picker-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Section */
+.algo-picker-section {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.algo-picker-section.section-active {
+  border-color: var(--accent-1);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.08);
+}
+
+.algo-picker-section.quantum.section-active {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.1);
+}
+
+/* Section Header */
+.algo-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.algo-section-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.algo-section-icon.classical-icon {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-1);
+}
+
+.algo-section-icon.quantum-icon {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+}
+
+.algo-section-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.algo-section-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Cards */
+.algo-section-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.algo-pick-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  width: 100%;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.algo-pick-card:hover {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.06);
+  transform: translateX(4px);
+}
+
+.algo-pick-card.quantum-card:hover {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.algo-pick-card.selected {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+}
+
+.algo-pick-card.quantum-card.selected {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.12);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.1);
+}
+
+.algo-pick-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--accent-1);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.algo-pick-icon.quantum-pick-icon {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+}
+
+.algo-pick-card.selected .algo-pick-icon {
+  background: var(--accent-1);
+  color: #fff;
+}
+
+.algo-pick-card.quantum-card.selected .algo-pick-icon.quantum-pick-icon {
+  background: #8b5cf6;
+  color: #fff;
+}
+
+.algo-pick-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.algo-pick-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.algo-pick-desc {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.algo-pick-check {
+  color: var(--accent-1);
+  font-size: 16px;
+  flex-shrink: 0;
+  animation: checkPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.algo-pick-check.quantum-check {
+  color: #8b5cf6;
+}
+
+@keyframes checkPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+/* Engine toggle inside picker */
+.algo-engine-section {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeInHint 0.3s ease;
+}
+
+.algo-engine-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.algo-engine-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.algo-engine-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+
+.algo-engine-btn:hover {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.algo-engine-btn.active {
+  border-color: var(--accent-1);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.15);
+  color: var(--text-primary);
+}
+
+.algo-engine-btn.cpp.active {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.10);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.12);
+}
+
+.algo-engine-btn-icon {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.algo-engine-btn.active .algo-engine-btn-icon {
+  color: var(--accent-1);
+}
+
+.algo-engine-btn.cpp.active .algo-engine-btn-icon {
+  color: #f59e0b;
+}
+
+.algo-engine-btn-text {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.algo-engine-btn-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.algo-engine-btn.active .algo-engine-btn-tag {
+  color: var(--text-secondary);
+}
+
+/* Footer */
+.algo-picker-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.algo-picker-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.algo-picker-current-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.algo-picker-current-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.algo-picker-current-badge.quantum {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+.algo-picker-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--gradient-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.algo-picker-confirm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px var(--accent-glow);
+}
+
+.algo-picker-confirm:active {
+  transform: translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Sidebar Algorithm Summary Button
+   ═══════════════════════════════════════════════════════════ */
+
+.algo-summary-panel {
+  border-color: var(--accent-1) !important;
+  background: rgba(99, 102, 241, 0.04) !important;
+}
+
+.algo-summary-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: rgba(99, 102, 241, 0.06);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.algo-summary-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent-1);
+  transform: translateX(2px);
+}
+
+.algo-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.algo-summary-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.algo-summary-icon.quantum {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+}
+
+.algo-summary-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
+
+.algo-summary-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.algo-summary-cat {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-1);
+}
+
+.algo-summary-cat.quantum {
+  color: #8b5cf6;
+}
+
+.algo-summary-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.algo-summary-btn:hover .algo-summary-right {
+  color: var(--accent-3);
+}
+
+.algo-summary-right i {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.algo-summary-btn:hover .algo-summary-right i {
+  transform: translateX(2px);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Sidebar Expand Button (visible when collapsed)
+   ═══════════════════════════════════════════════════════════ */
+
+.sidebar-expand-btn {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1002;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: expandBtnIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sidebar-expand-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--accent-1);
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.2);
+  transform: scale(1.08);
+}
+
+.sidebar-expand-btn:active {
+  transform: scale(0.95);
+}
+
+@keyframes expandBtnIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
 /* ── Responsive ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar {
@@ -1308,12 +1900,14 @@ body {
     left: 0;
     top: 0;
     width: 85vw;
+    min-width: 85vw;
     max-width: 360px;
     box-shadow: 8px 0 40px rgba(0, 0, 0, 0.5);
   }
 
   .sidebar.collapsed {
-    transform: translateX(-100%);
+    width: 0;
+    min-width: 0;
   }
 
   .mobile-sidebar-toggle {

@@ -34,6 +34,7 @@ interface MapViewProps {
     showPolygon: boolean;
     onLocationAdd: (lat: number, lng: number) => void;
     onLocationRemove: (index: number) => void;
+    onLocationUpdate: (index: number, lat: number, lng: number) => void;
     onRoadRouteDrawn: () => void;
     onRoadRouteError: (error: string) => void;
     // Restrictions
@@ -54,6 +55,7 @@ export default function MapView({
     showPolygon,
     onLocationAdd,
     onLocationRemove,
+    onLocationUpdate,
     onRoadRouteDrawn,
     onRoadRouteError,
     // Restrictions
@@ -76,11 +78,13 @@ export default function MapView({
     const tileLayerRef = useRef<L.TileLayer | null>(null);
     const onLocationAddRef = useRef(onLocationAdd);
     const onLocationRemoveRef = useRef(onLocationRemove);
+    const onLocationUpdateRef = useRef(onLocationUpdate);
     const roadDrawnForResultRef = useRef<string | null>(null);
 
     // Keep refs updated
     onLocationAddRef.current = onLocationAdd;
     onLocationRemoveRef.current = onLocationRemove;
+    onLocationUpdateRef.current = onLocationUpdate;
 
     // Initialize map
     useEffect(() => {
@@ -105,7 +109,14 @@ export default function MapView({
 
         mapRef.current = map;
 
+        // Invalidate map size when container resizes (e.g. sidebar collapse)
+        const ro = new ResizeObserver(() => {
+            map.invalidateSize({ animate: true });
+        });
+        if (containerRef.current) ro.observe(containerRef.current);
+
         return () => {
+            ro.disconnect();
             map.remove();
             mapRef.current = null;
         };
@@ -143,6 +154,12 @@ export default function MapView({
                 draggable: true,
                 title: loc.label,
             }).addTo(map);
+
+            // Update React state when marker is dragged
+            marker.on('dragend', () => {
+                const pos = marker.getLatLng();
+                onLocationUpdateRef.current(i, pos.lat, pos.lng);
+            });
 
             marker.bindPopup(`
         <div style="text-align:center">

@@ -45,6 +45,20 @@ export function useLocations() {
         );
     }, []);
 
+    const updatePosition = useCallback((index: number, lat: number, lng: number) => {
+        setLocations((prev) =>
+            prev.map((loc, i) =>
+                i === index
+                    ? {
+                          ...loc,
+                          lat: Math.round(lat * 1000000) / 1000000,
+                          lng: Math.round(lng * 1000000) / 1000000,
+                      }
+                    : loc
+            )
+        );
+    }, []);
+
     const clearAll = useCallback(() => {
         setLocations([]);
     }, []);
@@ -54,6 +68,7 @@ export function useLocations() {
         addLocation,
         removeLocation,
         updatePriority,
+        updatePosition,
         clearAll,
     };
 }

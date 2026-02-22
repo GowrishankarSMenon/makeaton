@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useLocations } from '@/hooks/useLocations';
 import { useParams } from '@/hooks/useParams';
@@ -9,6 +9,7 @@ import { useRestrictions } from '@/hooks/useRestrictions';
 import { useToast, ToastContainer } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import QuantumOverlay from '@/components/QuantumOverlay';
+import AlgorithmPicker from '@/components/AlgorithmPicker';
 
 // Dynamic import to avoid SSR for Leaflet
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -18,7 +19,7 @@ function delay(ms: number) {
 }
 
 export default function Home() {
-    const { locations, addLocation, removeLocation, updatePriority, clearAll } = useLocations();
+    const { locations, addLocation, removeLocation, updatePriority, updatePosition, clearAll } = useLocations();
     const { params, priorityEnabled, updateParam, togglePriority, resetParams, getParamsForSolve } =
         useParams();
     const { isLoading, result, solve, clearResult } = useSolver();
@@ -38,6 +39,17 @@ export default function Home() {
 
     const [algorithm, setAlgorithm] = useState('held-karp');
     const [solverEngine, setSolverEngine] = useState<'ts' | 'cpp'>('ts');
+
+    // Algorithm picker modal
+    const [algoPickerOpen, setAlgoPickerOpen] = useState(false);
+
+    // Hydration-safe flag — AlgorithmPicker rendered only after mount
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
+
+    // Sidebar collapse state
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const toggleSidebar = useCallback(() => setSidebarCollapsed((v) => !v), []);
 
     // Quantum overlay state
     const [overlayVisible, setOverlayVisible] = useState(false);
@@ -62,6 +74,13 @@ export default function Home() {
         setCongestionModeActive(active);
         if (active) setBlockModeActive(false);
     }, []);
+
+    const updateLocationPosition = useCallback(
+        (index: number, lat: number, lng: number) => {
+            updatePosition(index, lat, lng);
+        },
+        [updatePosition]
+    );
 
     const handleMapClick = useCallback(
         (lat: number, lng: number) => {
@@ -188,30 +207,35 @@ export default function Home() {
     }, [clearAll, clearResult, clearRestrictions, showToast]);
 
     // Mobile sidebar toggle
-    const toggleMobileSidebar = () => {
-        const sidebar = document.getElementById('sidebar');
-        if (sidebar) sidebar.classList.toggle('collapsed');
-    };
+    const toggleMobileSidebar = useCallback(() => {
+        setSidebarCollapsed((v) => !v);
+    }, []);
 
     return (
         <>
             <QuantumOverlay isVisible={overlayVisible} statusText={overlayStatus} />
             <ToastContainer toasts={toasts} />
 
-            <div className="app-layout">
-                <Sidebar
-                    solverEngine={solverEngine}
-                    onSolverEngineChange={setSolverEngine}
-                    locations={locations}
+            {mounted && (
+                <AlgorithmPicker
+                    isOpen={algoPickerOpen}
+                    onClose={() => setAlgoPickerOpen(false)}
                     algorithm={algorithm}
                     onAlgorithmChange={setAlgorithm}
+                    solverEngine={solverEngine}
+                    onSolverEngineChange={setSolverEngine}
+                />
+            )}
+
+            <div className="app-layout">
+                <Sidebar
+                    locations={locations}
+                    algorithm={algorithm}
+                    onOpenAlgorithmPicker={() => setAlgoPickerOpen(true)}
                     params={params}
-                    priorityEnabled={priorityEnabled}
                     onParamChange={updateParam}
-                    onPriorityToggle={togglePriority}
                     onResetParams={resetParams}
                     onRemoveLocation={removeLocation}
-                    onUpdatePriority={updatePriority}
                     onClearAll={handleClearAll}
                     onSolve={handleSolve}
                     solveResult={result}
@@ -220,6 +244,8 @@ export default function Home() {
                     polygonShown={showPolygon}
                     roadRouteLoading={roadRouteLoading}
                     onShowPolygon={handleShowPolygon}
+                    collapsed={sidebarCollapsed}
+                    onToggleCollapse={toggleSidebar}
                     // Restrictions
                     roadBlocks={roadBlocks}
                     congestionZones={congestionZones}
@@ -233,6 +259,13 @@ export default function Home() {
                     onClearRestrictions={clearRestrictions}
                 />
 
+                {/* Expand sidebar button — visible when collapsed */}
+                {sidebarCollapsed && (
+                    <button className="sidebar-expand-btn" onClick={toggleSidebar} title="Expand sidebar">
+                        <i className="fas fa-chevron-right"></i>
+                    </button>
+                )}
+
                 <button id="mobile-sidebar-toggle" className="mobile-sidebar-toggle" onClick={toggleMobileSidebar}>
                     <i className="fas fa-bars"></i>
                 </button>
@@ -244,6 +277,7 @@ export default function Home() {
                     showPolygon={showPolygon}
                     onLocationAdd={handleMapClick}
                     onLocationRemove={removeLocation}
+                    onLocationUpdate={updateLocationPosition}
                     onRoadRouteDrawn={handleRoadRouteDrawn}
                     onRoadRouteError={handleRoadRouteError}
                     // Restrictions

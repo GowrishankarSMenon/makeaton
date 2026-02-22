@@ -8,18 +8,12 @@ import { RoadBlock, CongestionZone } from '@/hooks/useRestrictions';
 interface SidebarProps {
     locations: MapLocation[];
     algorithm: string;
-    onAlgorithmChange: (algo: string) => void;
-
-    solverEngine: 'ts' | 'cpp';
-    onSolverEngineChange: (engine: 'ts' | 'cpp') => void;
+    onOpenAlgorithmPicker: () => void;
 
     params: LogisticsParams;
-    priorityEnabled: boolean;
     onParamChange: <K extends keyof LogisticsParams>(key: K, value: LogisticsParams[K]) => void;
-    onPriorityToggle: (enabled: boolean) => void;
     onResetParams: () => void;
     onRemoveLocation: (index: number) => void;
-    onUpdatePriority: (index: number, priority: number) => void;
     onClearAll: () => void;
     onSolve: () => void;
     solveResult: SolveResult | null;
@@ -28,6 +22,10 @@ interface SidebarProps {
     polygonShown: boolean;
     roadRouteLoading: boolean;
     onShowPolygon: () => void;
+
+    // Sidebar collapse
+    collapsed: boolean;
+    onToggleCollapse: () => void;
 
     // Restrictions
     roadBlocks: RoadBlock[];
@@ -42,30 +40,24 @@ interface SidebarProps {
     onClearRestrictions: () => void;
 }
 
-const ALGORITHMS = [
-    { value: 'held-karp', name: 'Held-Karp', desc: 'Exact · TS≤18 · C++⚡ larger n' },
-    { value: 'nearest-neighbor', name: 'Nearest Neighbor', desc: 'Greedy · O(n²) · Any n' },
-    { value: 'qaoa', name: 'Quantum QAOA', desc: 'Hybrid · Qiskit · n≤8' },
-    { value: 'hybrid-qhk', name: 'Hybrid QHK', desc: 'Quantum×Held-Karp · Best of both' },
-    { value: 'prewarm-hk', name: 'Pre-Warm HK', desc: 'HK→QAOA warm-start · Optimal seed' },
-    { value: 'compare', name: 'Compare Mode', desc: 'Both · Gap Analysis' },
-];
+const ALGO_LOOKUP: Record<string, { name: string; icon: string; category: string }> = {
+    'held-karp': { name: 'Held-Karp', icon: 'fas fa-brain', category: 'Classical' },
+    'nearest-neighbor': { name: 'Nearest Neighbor', icon: 'fas fa-route', category: 'Classical' },
+    'qaoa': { name: 'Quantum QAOA', icon: 'fas fa-atom', category: 'Quantum' },
+    'hybrid-qhk': { name: 'Hybrid QHK', icon: 'fas fa-layer-group', category: 'Quantum' },
+    'prewarm-hk': { name: 'Pre-Warm HK', icon: 'fas fa-fire', category: 'Quantum' },
+    'compare': { name: 'Compare Mode', icon: 'fas fa-chart-bar', category: 'Utility' },
+};
 
 export default function Sidebar({
     locations,
     algorithm,
-    onAlgorithmChange,
-
-    solverEngine,
-    onSolverEngineChange,
+    onOpenAlgorithmPicker,
 
     params,
-    priorityEnabled,
     onParamChange,
-    onPriorityToggle,
     onResetParams,
     onRemoveLocation,
-    onUpdatePriority,
     onClearAll,
     onSolve,
     solveResult,
@@ -74,6 +66,10 @@ export default function Sidebar({
     polygonShown,
     roadRouteLoading,
     onShowPolygon,
+
+    // Sidebar collapse
+    collapsed,
+    onToggleCollapse,
 
     // Restrictions
     roadBlocks,
@@ -88,10 +84,11 @@ export default function Sidebar({
     onClearRestrictions,
 }: SidebarProps) {
     const totalRestrictions = roadBlocks.length + congestionZones.length;
+    const algoInfo = ALGO_LOOKUP[algorithm] || { name: algorithm, icon: 'fas fa-cog', category: 'Unknown' };
 
     return (
-        <aside id="sidebar" className="sidebar">
-            <SidebarHeader />
+        <aside id="sidebar" className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+            <SidebarHeader collapsed={collapsed} onToggleCollapse={onToggleCollapse} />
             <div className="sidebar-body">
                 {/* Locations Section */}
                 <section className="panel">
@@ -109,9 +106,7 @@ export default function Sidebar({
                                     key={`${loc.lat}-${loc.lng}-${i}`}
                                     location={loc}
                                     index={i}
-                                    priorityEnabled={priorityEnabled}
                                     onRemove={onRemoveLocation}
-                                    onUpdatePriority={onUpdatePriority}
                                 />
                             ))}
                         </ul>
@@ -126,58 +121,27 @@ export default function Sidebar({
                     </div>
                 </section>
 
-                {/* Algorithm Section */}
-                <section className="panel">
+                {/* Algorithm Selector — opens center picker */}
+                <section className="panel algo-summary-panel">
                     <div className="panel-header">
                         <h2><i className="fas fa-microchip"></i> Algorithm</h2>
                     </div>
                     <div className="panel-body">
-                        <div className="algo-selector">
-                            {ALGORITHMS.map((algo) => (
-                                <label
-                                    key={algo.value}
-                                    className={`algo-option${algorithm === algo.value ? ' active' : ''}`}
-                                    data-algo={algo.value}
-                                    onClick={() => onAlgorithmChange(algo.value)}
-                                >
-                                    <input
-                                        type="radio"
-                                        name="algorithm"
-                                        value={algo.value}
-                                        checked={algorithm === algo.value}
-                                        onChange={() => onAlgorithmChange(algo.value)}
-                                    />
-                                    <div className="algo-card">
-                                        <span className="algo-name">{algo.name}</span>
-                                        <span className="algo-desc">{algo.desc}</span>
-                                    </div>
-                                </label>
-                            ))}
-                        </div>
-
-                        {algorithm === 'held-karp' && (
-                            <div className="engine-section">
-                                <span className="engine-label">Engine</span>
-                                <div className="engine-toggle">
-                                    <button
-                                        className={`engine-btn${solverEngine === 'ts' ? ' active' : ''}`}
-                                        onClick={() => onSolverEngineChange('ts')}
-                                    >
-                                        <span className="engine-btn-icon">TS</span>
-                                        <span className="engine-btn-text">TypeScript</span>
-                                        <span className="engine-btn-tag">≤18 nodes</span>
-                                    </button>
-                                    <button
-                                        className={`engine-btn cpp${solverEngine === 'cpp' ? ' active' : ''}`}
-                                        onClick={() => onSolverEngineChange('cpp')}
-                                    >
-                                        <span className="engine-btn-icon">⚡</span>
-                                        <span className="engine-btn-text">C++ Native</span>
-                                        <span className="engine-btn-tag">Faster</span>
-                                    </button>
+                        <button className="algo-summary-btn" onClick={onOpenAlgorithmPicker}>
+                            <div className="algo-summary-left">
+                                <div className={`algo-summary-icon${algoInfo.category === 'Quantum' ? ' quantum' : ''}`}>
+                                    <i className={algoInfo.icon}></i>
+                                </div>
+                                <div className="algo-summary-info">
+                                    <span className="algo-summary-name">{algoInfo.name}</span>
+                                    <span className={`algo-summary-cat${algoInfo.category === 'Quantum' ? ' quantum' : ''}`}>{algoInfo.category}</span>
                                 </div>
                             </div>
-                        )}
+                            <div className="algo-summary-right">
+                                <span>Change</span>
+                                <i className="fas fa-chevron-right"></i>
+                            </div>
+                        </button>
                     </div>
                 </section>
 
@@ -234,23 +198,6 @@ export default function Sidebar({
                             maxLabel="Costly"
                             onChange={(v) => onParamChange('fuelEfficiency', v)}
                         />
-                        <div className="param-group">
-                            <div className="param-label">
-                                <span><i className="fas fa-flag"></i> Delivery Priority</span>
-                                <span className="param-value">{priorityEnabled ? 'On' : 'Off'}</span>
-                            </div>
-                            <div className="toggle-row">
-                                <label className="toggle">
-                                    <input
-                                        type="checkbox"
-                                        checked={priorityEnabled}
-                                        onChange={(e) => onPriorityToggle(e.target.checked)}
-                                    />
-                                    <span className="toggle-slider"></span>
-                                </label>
-                                <span className="toggle-text">Enable per-node priority</span>
-                            </div>
-                        </div>
                     </div>
                 </section>
 
@@ -450,19 +397,7 @@ export default function Sidebar({
     );
 }
 
-function SidebarHeader() {
-    const toggleSidebar = () => {
-        const sidebar = document.getElementById('sidebar');
-        if (!sidebar) return;
-        sidebar.classList.toggle('collapsed');
-        const icon = document.querySelector('#sidebar-toggle i');
-        if (icon) {
-            icon.className = sidebar.classList.contains('collapsed')
-                ? 'fas fa-chevron-right'
-                : 'fas fa-chevron-left';
-        }
-    };
-
+function SidebarHeader({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse: () => void }) {
     return (
         <div className="sidebar-header">
             <div className="brand">
@@ -474,8 +409,13 @@ function SidebarHeader() {
                     <p className="brand-sub">Hybrid Delivery Optimizer</p>
                 </div>
             </div>
-            <button id="sidebar-toggle" className="sidebar-toggle" title="Toggle sidebar" onClick={toggleSidebar}>
-                <i className="fas fa-chevron-left"></i>
+            <button
+                id="sidebar-toggle"
+                className="sidebar-toggle"
+                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                onClick={onToggleCollapse}
+            >
+                <i className={`fas fa-chevron-${collapsed ? 'right' : 'left'}`}></i>
             </button>
         </div>
     );
@@ -484,15 +424,11 @@ function SidebarHeader() {
 function LocationItem({
     location,
     index,
-    priorityEnabled,
     onRemove,
-    onUpdatePriority,
 }: {
     location: MapLocation;
     index: number;
-    priorityEnabled: boolean;
     onRemove: (i: number) => void;
-    onUpdatePriority: (i: number, p: number) => void;
 }) {
     const isDepot = index === 0;
 
@@ -507,18 +443,6 @@ function LocationItem({
                     {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
                 </div>
             </div>
-            {!isDepot && priorityEnabled && (
-                <input
-                    type="range"
-                    className="location-priority"
-                    min="0.5"
-                    max="1.5"
-                    step="0.1"
-                    value={location.priority}
-                    title={`Priority: ${location.priority}`}
-                    onChange={(e) => onUpdatePriority(index, parseFloat(e.target.value))}
-                />
-            )}
             <button
                 className="location-remove"
                 title="Remove"
