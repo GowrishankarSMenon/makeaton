@@ -14,12 +14,12 @@ export interface RoadBlockForRoute {
 }
 
 /**
- * Fixed radius (km) for checking if a drawn road route geometry point
- * falls near a road block. This is purely for visual route rendering —
- * the solver uses OSRM route geometry detection separately.
- * 0.25 km (250 m) matches the solver's detection radius.
+ * Fixed radius (km) for checking if a drawn road route geometry
+ * passes near a road block. Used for visual route rendering —
+ * the solver uses the same radius for edge detection.
+ * 0.30 km (300 m) matches the solver's detection radius.
  */
-const ROUTE_BLOCK_DETECTION_KM = 0.25;
+const ROUTE_BLOCK_DETECTION_KM = 0.30;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
@@ -65,7 +65,9 @@ function pointToSegmentDistKm(
 }
 
 /**
- * Check if any road geometry point falls within a block's detection radius.
+ * Check if any road geometry point or segment falls within a block's
+ * detection radius. Checks both individual points AND line segments
+ * between consecutive points to catch blocks between sparse geometry.
  */
 function routePassesThroughBlock(
     routePoints: [number, number][],
@@ -74,6 +76,12 @@ function routePassesThroughBlock(
     for (let i = 0; i < routePoints.length; i++) {
         const [lat, lng] = routePoints[i];
         if (haversineKm({ lat, lng }, block) <= ROUTE_BLOCK_DETECTION_KM) return true;
+    }
+    // Segment check: block between two consecutive geometry points
+    for (let i = 0; i < routePoints.length - 1; i++) {
+        const a = { lat: routePoints[i][0], lng: routePoints[i][1] };
+        const b = { lat: routePoints[i + 1][0], lng: routePoints[i + 1][1] };
+        if (pointToSegmentDistKm(block, a, b) <= ROUTE_BLOCK_DETECTION_KM) return true;
     }
     return false;
 }
