@@ -39,7 +39,6 @@ interface SidebarProps {
     onRemoveBlock: (id: string) => void;
     onRemoveCongestion: (id: string) => void;
     onUpdateCongestion: (id: string, updates: Partial<Pick<CongestionZone, 'radiusKm' | 'intensity'>>) => void;
-    onUpdateBlock: (id: string, updates: Partial<Pick<RoadBlock, 'radiusKm'>>) => void;
     onClearRestrictions: () => void;
 }
 
@@ -86,7 +85,6 @@ export default function Sidebar({
     onRemoveBlock,
     onRemoveCongestion,
     onUpdateCongestion,
-    onUpdateBlock,
     onClearRestrictions,
 }: SidebarProps) {
     const totalRestrictions = roadBlocks.length + congestionZones.length;
@@ -303,25 +301,6 @@ export default function Sidebar({
                                                 <span className="restriction-item-coords">
                                                     {block.lat.toFixed(4)}, {block.lng.toFixed(4)}
                                                 </span>
-                                                <div className="zone-controls">
-                                                    <div className="zone-control">
-                                                        <span className="zone-control-label">Radius</span>
-                                                        <input
-                                                            type="range"
-                                                            className="zone-slider block-radius"
-                                                            min={0.3}
-                                                            max={5}
-                                                            step={0.1}
-                                                            value={block.radiusKm ?? 1.0}
-                                                            onChange={(e) =>
-                                                                onUpdateBlock(block.id, {
-                                                                    radiusKm: parseFloat(e.target.value),
-                                                                })
-                                                            }
-                                                        />
-                                                        <span className="zone-control-value block-radius-value">{(block.radiusKm ?? 1.0).toFixed(1)} km</span>
-                                                    </div>
-                                                </div>
                                             </div>
                                             <button
                                                 className="restriction-remove"

@@ -10,11 +10,16 @@ import { Location } from './preprocessing/distance-matrix';
 export interface RoadBlockForRoute {
     lat: number;
     lng: number;
-    radiusKm: number;
     id: string;
 }
 
-const DEFAULT_BLOCK_RADIUS_KM = 1.0;
+/**
+ * Fixed radius (km) for checking if a drawn road route geometry point
+ * falls near a road block. This is purely for visual route rendering —
+ * the solver uses OSRM table-based detection separately.
+ * 0.15 km (150 m) is tight enough for road-level detection.
+ */
+const ROUTE_BLOCK_DETECTION_KM = 0.15;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
@@ -60,18 +65,15 @@ function pointToSegmentDistKm(
 }
 
 /**
- * Check if any road geometry point falls within a block's radius.
+ * Check if any road geometry point falls within a block's detection radius.
  */
 function routePassesThroughBlock(
     routePoints: [number, number][],
-    block: RoadBlockForRoute,
-    radiusKm?: number
+    block: RoadBlockForRoute
 ): boolean {
-    const effectiveRadius = radiusKm ?? block.radiusKm ?? DEFAULT_BLOCK_RADIUS_KM;
-    // Check every point along the route (not just sampled) for wider blocks
     for (let i = 0; i < routePoints.length; i++) {
         const [lat, lng] = routePoints[i];
-        if (haversineKm({ lat, lng }, block) <= effectiveRadius) return true;
+        if (haversineKm({ lat, lng }, block) <= ROUTE_BLOCK_DETECTION_KM) return true;
     }
     return false;
 }
@@ -99,13 +101,11 @@ function computeDetourPoint(
     const perpLen = Math.sqrt(perpLat * perpLat + perpLng * perpLng);
 
     if (perpLen === 0) {
-        const effectiveRadius = block.radiusKm ?? DEFAULT_BLOCK_RADIUS_KM;
-        const offset = effectiveRadius * 0.015;
-        return { lat: block.lat + offset, lng: block.lng + offset };
+        return { lat: block.lat + 0.005, lng: block.lng + 0.005 };
     }
 
-    // Normalize and scale — offset proportional to block radius
-    const effectiveOffset = offsetDeg ?? (block.radiusKm ?? DEFAULT_BLOCK_RADIUS_KM) * 0.02;
+    // Normalize and scale — offset ~500m by default
+    const effectiveOffset = offsetDeg ?? 0.005;
     const normLat = (perpLat / perpLen) * effectiveOffset;
     const normLng = (perpLng / perpLen) * effectiveOffset;
 
@@ -158,13 +158,8 @@ async function fetchSegmentAvoidingBlocks(
     const hitBlocks = blocks.filter(b => routePassesThroughBlock(directRoute, b));
 
     for (const block of hitBlocks) {
-        const effectiveRadius = block.radiusKm ?? DEFAULT_BLOCK_RADIUS_KM;
-        // Try progressively larger detour offsets
-        const offsets = [
-            effectiveRadius * 0.015,   // ~1.5× radius in degrees
-            effectiveRadius * 0.025,   // ~2.5× radius in degrees
-            effectiveRadius * 0.04,    // ~4× radius in degrees
-        ];
+        // Try progressively larger detour offsets (degrees, ~111m per 0.001°)
+        const offsets = [0.005, 0.012, 0.025];
 
         for (const offsetDeg of offsets) {
             const detour = computeDetourPoint(from, to, block, offsetDeg);

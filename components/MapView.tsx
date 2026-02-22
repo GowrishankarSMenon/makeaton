@@ -71,7 +71,6 @@ export default function MapView({
     const markersRef = useRef<L.Marker[]>([]);
     const routeLayersRef = useRef<L.Layer[]>([]);
     const blockMarkersRef = useRef<L.Marker[]>([]);
-    const blockCirclesRef = useRef<L.Circle[]>([]);
     const congestionLayersRef = useRef<L.Circle[]>([]);
     const [isDark, setIsDark] = useState(false);
     const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -158,30 +157,16 @@ export default function MapView({
         });
     }, [locations]);
 
-    // Render road block markers with radius circles
+    // Render road block markers
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
 
-        // Clear old block markers and circles
+        // Clear old block markers
         blockMarkersRef.current.forEach((m) => map.removeLayer(m));
         blockMarkersRef.current = [];
-        blockCirclesRef.current.forEach((c) => map.removeLayer(c));
-        blockCirclesRef.current = [];
 
         roadBlocks.forEach((block) => {
-            // Draw the block radius circle
-            const radiusCircle = L.circle([block.lat, block.lng], {
-                radius: (block.radiusKm ?? 1.0) * 1000, // km to meters
-                color: '#ef4444',
-                fillColor: '#ef4444',
-                fillOpacity: 0.08,
-                weight: 2,
-                dashArray: '8 4',
-                className: 'block-radius-circle',
-            }).addTo(map);
-            blockCirclesRef.current.push(radiusCircle);
-
             const blockHtml = `
                 <div class="block-marker">
                     <div class="block-marker-inner">
@@ -206,7 +191,7 @@ export default function MapView({
             const marker = L.marker([block.lat, block.lng], {
                 icon,
                 draggable: true,
-                title: `Road Block (${(block.radiusKm ?? 1.0).toFixed(1)} km radius)`,
+                title: 'Road Block',
                 zIndexOffset: 500,
             }).addTo(map);
 
@@ -220,9 +205,6 @@ export default function MapView({
                     <strong style="color:#ef4444">🚧 Road Block</strong><br>
                     <span style="font-size:11px;color:#94a3b8">
                         ${block.lat.toFixed(5)}, ${block.lng.toFixed(5)}
-                    </span><br>
-                    <span style="font-size:10px;color:#f87171">
-                        Radius: ${(block.radiusKm ?? 1.0).toFixed(1)} km
                     </span><br>
                     <button onclick="window.__removeBlock('${block.id}')" 
                         style="margin-top:6px;padding:4px 10px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;">
@@ -388,7 +370,6 @@ export default function MapView({
                 const blocks: RoadBlockForRoute[] = roadBlocks.map(b => ({
                     lat: b.lat,
                     lng: b.lng,
-                    radiusKm: b.radiusKm ?? 1.0,
                     id: b.id,
                 }));
 

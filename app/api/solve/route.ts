@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 
 import { buildDistanceMatrix, Location } from '@/lib/preprocessing/distance-matrix';
-import { applyModifiers, BLOCKED_DISTANCE } from '@/lib/preprocessing/modifiers';
+import { applyModifiers, detectBlockedEdges, BLOCKED_DISTANCE } from '@/lib/preprocessing/modifiers';
 
 import { heldKarp } from '@/lib/solvers/held-karp';
 import { nearestNeighbor } from '@/lib/solvers/nearest-neighbor';
@@ -69,7 +69,14 @@ export async function POST(request: NextRequest) {
       `sample dist[0][1]=${distances[0]?.[1] ?? 'N/A'}`
     );
 
-    const { weightedDistances } = applyModifiers(distances, durations, params, locations);
+    // Detect blocked edges via OSRM distance-based analysis (async)
+    let blockedEdges: Set<string> | undefined;
+    if (rb && rb.length > 0) {
+      console.log(`[Solve] Detecting blocked edges via OSRM table for ${rb.length} block(s)...`);
+      blockedEdges = await detectBlockedEdges(locations, rb, distances);
+    }
+
+    const { weightedDistances } = applyModifiers(distances, durations, params, locations, blockedEdges);
 
     // Debug: confirm matrix changed after modifier
     console.log(

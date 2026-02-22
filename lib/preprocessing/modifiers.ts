@@ -7,7 +7,6 @@
 export interface RoadBlockParam {
     lat: number;
     lng: number;
-    radiusKm?: number;
     id: string;
 }
 
@@ -115,16 +114,114 @@ function segmentIntersectsCircle(
 // (1 billion meters = 1 million km — larger than any real route)
 export const BLOCKED_DISTANCE = 1e9;
 
-// Effective blocking radius for road blocks (km).
-// Default 1.0 km — wide enough to reliably block road segments passing
-// through the block zone. Each block can override via its own radiusKm.
-export const BLOCK_RADIUS_KM = 1.0;
+// Small radius (km) for point-proximity fallback check (straight-line).
+// Only used as a secondary heuristic; primary detection is OSRM-distance-based.
+export const BLOCK_PROXIMITY_KM = 0.5;
+
+/**
+ * Detect which edges should be blocked by querying OSRM with block points
+ * included as extra nodes. If dist(i→block) + dist(block→j) ≈ dist(i→j),
+ * then the shortest road from i to j passes through/near the block.
+ *
+ * This is the correct approach because it uses actual OSRM road distances
+ * rather than straight-line geometry which misses curved roads.
+ */
+export async function detectBlockedEdges(
+    locations: LocationForModifier[],
+    roadBlocks: RoadBlockParam[],
+    rawDistances: number[][]
+): Promise<Set<string>> {
+    const blockedEdges = new Set<string>();
+    if (roadBlocks.length === 0 || locations.length < 2) return blockedEdges;
+
+    const n = locations.length;
+
+    // Build extended point list: [all locations, then all block points]
+    const allPoints = [
+        ...locations,
+        ...roadBlocks.map(b => ({ lat: b.lat, lng: b.lng })),
+    ];
+
+    // Query OSRM Table API for the extended distance matrix
+    const coords = allPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const url = `https://router.project-osrm.org/table/v1/driving/${coords}?annotations=distance`;
+
+    let extDist: number[][] | null = null;
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        const data = await response.json();
+        if (data.code === 'Ok' && data.distances) {
+            extDist = data.distances;
+        } else {
+            console.warn(`[BlockDetect] OSRM table failed: ${data.code}`);
+        }
+    } catch (err) {
+        console.warn('[BlockDetect] OSRM extended table fetch failed:', err);
+    }
+
+    if (extDist) {
+        // OSRM-distance-based detection: if the shortest road from i to j
+        // passes through the block point, then dist(i→block)+dist(block→j)
+        // should be close to dist(i→j).
+        const TOLERANCE = 0.15; // 15% — generous to catch near-block roads
+
+        for (let b = 0; b < roadBlocks.length; b++) {
+            const blockIdx = n + b;
+            let edgesBlocked = 0;
+
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (i === j) continue;
+                    if (blockedEdges.has(`${i}->${j}`)) continue;
+
+                    const directDist = extDist[i][j];
+                    const viaBlockDist = extDist[i][blockIdx] + extDist[blockIdx][j];
+
+                    // If going through the block point adds ≤15% extra,
+                    // the shortest road likely passes through it
+                    if (directDist > 0 && viaBlockDist <= directDist * (1 + TOLERANCE)) {
+                        blockedEdges.add(`${i}->${j}`);
+                        edgesBlocked++;
+                    }
+                }
+            }
+
+            console.log(
+                `[BlockDetect] Block "${roadBlocks[b].id}" — ` +
+                `${edgesBlocked} edges detected via OSRM distance comparison`
+            );
+        }
+    } else {
+        // Fallback: use straight-line proximity if OSRM fails
+        console.warn('[BlockDetect] Falling back to straight-line proximity check');
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                if (i === j) continue;
+                for (const block of roadBlocks) {
+                    const segDist = pointToSegmentDistKm(block, locations[i], locations[j]);
+                    const epDist = Math.min(
+                        haversineKm(locations[i], block),
+                        haversineKm(locations[j], block)
+                    );
+                    if (segDist <= BLOCK_PROXIMITY_KM || epDist <= BLOCK_PROXIMITY_KM) {
+                        blockedEdges.add(`${i}->${j}`);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    console.log(`[BlockDetect] Total blocked edges: ${blockedEdges.size}`);
+    return blockedEdges;
+}
 
 export function applyModifiers(
     distances: number[][],
     durations: number[][],
     params: LogisticsParams = {},
-    locations?: LocationForModifier[]
+    locations?: LocationForModifier[],
+    precomputedBlockedEdges?: Set<string>
 ): ModifiedMatrices {
     const n = distances.length;
     const {
@@ -133,7 +230,6 @@ export function applyModifiers(
         roadTypePreference = 1.0,
         fuelEfficiency = 1.0,
         deliveryPriority = null,
-        roadBlocks = [],
         congestionZones = [],
     } = params;
 
@@ -166,52 +262,21 @@ export function applyModifiers(
         }
     }
 
-    // Apply road blocks: block ALL edges whose path passes near the block.
-    // An edge i→j is blocked if:
-    //   (a) the segment intersects the block circle (flat-earth approx), OR
-    //   (b) either endpoint i or j lies inside the block radius (haversine, exact).
-    if (locations && roadBlocks.length > 0) {
+    // Apply road blocks via precomputed blocked-edge set (from OSRM distance detection).
+    if (precomputedBlockedEdges && precomputedBlockedEdges.size > 0) {
         let totalBlocked = 0;
-
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < n; j++) {
                 if (i === j) continue;
                 if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
-
-                for (const block of roadBlocks) {
-                    const effectiveRadius = block.radiusKm ?? BLOCK_RADIUS_KM;
-
-                    // (a) Segment-to-circle intersection (flat-earth approx)
-                    const segmentHit = segmentIntersectsCircle(
-                        locations[i],
-                        locations[j],
-                        block,
-                        effectiveRadius
-                    );
-
-                    // (b) Either endpoint inside block radius (haversine, exact)
-                    const endpointHit =
-                        haversineKm(locations[i], block) <= effectiveRadius ||
-                        haversineKm(locations[j], block) <= effectiveRadius;
-
-                    if (segmentHit || endpointHit) {
-                        weightedDistances[i][j] = BLOCKED_DISTANCE;
-                        weightedDurations[i][j] = BLOCKED_DISTANCE;
-                        totalBlocked++;
-                        console.log(
-                            `[Modifiers] Blocked edge ${i}→${j} by roadBlock "${block.id}"` +
-                            ` (segment=${segmentHit}, endpoint=${endpointHit})`
-                        );
-                        break; // one block is enough to block this edge
-                    }
+                if (precomputedBlockedEdges.has(`${i}->${j}`)) {
+                    weightedDistances[i][j] = BLOCKED_DISTANCE;
+                    weightedDurations[i][j] = BLOCKED_DISTANCE;
+                    totalBlocked++;
                 }
             }
         }
-
-        console.log(
-            `[Modifiers] Applied ${roadBlocks.length} road block(s) — ` +
-            `total blocked edges: ${totalBlocked}`
-        );
+        console.log(`[Modifiers] Applied precomputed road blocks — total blocked edges: ${totalBlocked}`);
     }
 
     // Apply congestion zones: multiply edge weights if the path passes through a zone
