@@ -16,10 +16,10 @@ export interface RoadBlockForRoute {
 /**
  * Fixed radius (km) for checking if a drawn road route geometry point
  * falls near a road block. This is purely for visual route rendering —
- * the solver uses OSRM table-based detection separately.
- * 0.15 km (150 m) is tight enough for road-level detection.
+ * the solver uses OSRM route geometry detection separately.
+ * 0.25 km (250 m) matches the solver's detection radius.
  */
-const ROUTE_BLOCK_DETECTION_KM = 0.15;
+const ROUTE_BLOCK_DETECTION_KM = 0.25;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
@@ -159,7 +159,8 @@ async function fetchSegmentAvoidingBlocks(
 
     for (const block of hitBlocks) {
         // Try progressively larger detour offsets (degrees, ~111m per 0.001°)
-        const offsets = [0.005, 0.012, 0.025];
+        // Range from ~550m to ~5.5km to handle blocks on major roads
+        const offsets = [0.005, 0.012, 0.025, 0.04, 0.06];
 
         for (const offsetDeg of offsets) {
             const detour = computeDetourPoint(from, to, block, offsetDeg);
