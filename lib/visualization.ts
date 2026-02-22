@@ -14,7 +14,15 @@ export interface RoadBlockForRoute {
     radiusKm?: number;
 }
 
-const BLOCK_RADIUS_KM = 0.3;
+/**
+ * Fixed radius (km) for checking if a drawn road route geometry
+ * passes near a road block. Used for visual route rendering —
+ * the solver uses the same radius for edge detection.
+ * 0.05 km (50 m) matches the solver's detection radius.
+ * Tight enough to flag only routes ON the blocked road, not
+ * parallel roads 100m+ away.
+ */
+const ROUTE_BLOCK_DETECTION_KM = 0.05;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
@@ -60,23 +68,24 @@ function pointToSegmentDistKm(
 }
 
 /**
- * Check if any road geometry point falls within a block's radius.
+ * Check if any road geometry point or segment falls within a block's
+ * detection radius. Checks both individual points AND line segments
+ * between consecutive points to catch blocks between sparse geometry.
  */
 function routePassesThroughBlock(
     routePoints: [number, number][],
     block: RoadBlockForRoute
 ): boolean {
-    const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
-
-    // Check sampled points along the route
-    const step = Math.max(1, Math.floor(routePoints.length / 50));
-    for (let i = 0; i < routePoints.length; i += step) {
+    for (let i = 0; i < routePoints.length; i++) {
         const [lat, lng] = routePoints[i];
-        if (haversineKm({ lat, lng }, block) <= radiusKm) return true;
+        if (haversineKm({ lat, lng }, block) <= ROUTE_BLOCK_DETECTION_KM) return true;
     }
-    // Also check last point
-    const [lastLat, lastLng] = routePoints[routePoints.length - 1];
-    if (haversineKm({ lat: lastLat, lng: lastLng }, block) <= radiusKm) return true;
+    // Segment check: block between two consecutive geometry points
+    for (let i = 0; i < routePoints.length - 1; i++) {
+        const a = { lat: routePoints[i][0], lng: routePoints[i][1] };
+        const b = { lat: routePoints[i + 1][0], lng: routePoints[i + 1][1] };
+        if (pointToSegmentDistKm(block, a, b) <= ROUTE_BLOCK_DETECTION_KM) return true;
+    }
     return false;
 }
 
@@ -87,7 +96,8 @@ function routePassesThroughBlock(
 function computeDetourPoint(
     from: Location,
     to: Location,
-    block: RoadBlockForRoute
+    block: RoadBlockForRoute,
+    offsetDeg?: number
 ): Location {
     const midLat = (from.lat + to.lat) / 2;
     const midLng = (from.lng + to.lng) / 2;
@@ -102,14 +112,13 @@ function computeDetourPoint(
     const perpLen = Math.sqrt(perpLat * perpLat + perpLng * perpLng);
 
     if (perpLen === 0) {
-        return { lat: block.lat + 0.03, lng: block.lng + 0.03 };
+        return { lat: block.lat + 0.005, lng: block.lng + 0.005 };
     }
 
-    // Normalize and scale — offset by block radius + a buffer, converted to degrees
-    const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
-    const offsetDeg = Math.max(0.03, (radiusKm + 1.0) / 111.32);
-    const normLat = (perpLat / perpLen) * offsetDeg;
-    const normLng = (perpLng / perpLen) * offsetDeg;
+    // Normalize and scale — offset ~500m by default
+    const effectiveOffset = offsetDeg ?? 0.005;
+    const normLat = (perpLat / perpLen) * effectiveOffset;
+    const normLng = (perpLng / perpLen) * effectiveOffset;
 
     // Choose the side of the segment that's away from the block
     const sideA = { lat: midLat + normLat, lng: midLng + normLng };
@@ -123,45 +132,65 @@ function computeDetourPoint(
 
 /**
  * Fetch road geometry for a single segment, avoiding road blocks.
- * If the direct route passes through a block, adds a detour waypoint.
+ * Strategy:
+ *   1. Ask OSRM for the direct route + alternatives.
+ *   2. If the primary route is blocked, try each alternative.
+ *   3. If no alternative avoids the block, compute detour waypoints
+ *      at multiple offsets (scaled by the block radius) and try each.
+ *   4. Falls back to the direct route only as a last resort.
  */
 async function fetchSegmentAvoidingBlocks(
     from: Location,
     to: Location,
     blocks: RoadBlockForRoute[]
 ): Promise<[number, number][]> {
-    // First try direct route
-    const directRoute = await fetchRoadGeometry(from, to);
+    if (blocks.length === 0) {
+        return fetchRoadGeometry(from, to);
+    }
 
-    if (blocks.length === 0) return directRoute;
+    // Ask OSRM for alternatives so we can pick the best unblocked one
+    const allRoutes = await fetchRoadGeometryWithAlternatives(from, to);
 
-    // Check if direct route passes through any block
-    for (const block of blocks) {
-        const radiusKm = block.radiusKm ?? BLOCK_RADIUS_KM;
-        // Check straight-line proximity first (fast)
-        const straightLineDist = pointToSegmentDistKm(block, from, to);
-        if (straightLineDist > radiusKm * 2) continue;
+    // Helper: check if a route is clear of ALL blocks
+    const routeClear = (route: [number, number][]) =>
+        blocks.every(b => !routePassesThroughBlock(route, b));
 
-        // Check actual road geometry
-        if (routePassesThroughBlock(directRoute, block)) {
-            console.log(`[Road] Segment passes through block ${block.id}, adding detour`);
-            const detour = computeDetourPoint(from, to, block);
+    // Try each OSRM-returned route (primary first, then alternatives)
+    for (let ri = 0; ri < allRoutes.length; ri++) {
+        if (routeClear(allRoutes[ri])) {
+            if (ri > 0) console.log(`[Road] Using alternative route #${ri + 1} to avoid blocks`);
+            return allRoutes[ri];
+        }
+    }
 
-            // Route via detour: from → detour → to
+    // All OSRM routes pass through at least one block — try detour waypoints
+    // Identify which blocks actually intersect our best route
+    const directRoute = allRoutes[0];
+    const hitBlocks = blocks.filter(b => routePassesThroughBlock(directRoute, b));
+
+    for (const block of hitBlocks) {
+        // Try progressively larger detour offsets (degrees, ~111m per 0.001°)
+        // Range from ~550m to ~5.5km to handle blocks on major roads
+        const offsets = [0.005, 0.012, 0.025, 0.04, 0.06];
+
+        for (const offsetDeg of offsets) {
+            const detour = computeDetourPoint(from, to, block, offsetDeg);
+
             const waypointStr = `${from.lng},${from.lat};${detour.lng},${detour.lat};${to.lng},${to.lat}`;
-            const url = `/api/osrm?waypoints=${encodeURIComponent(waypointStr)}`;
+            const url = `/api/osrm?waypoints=${encodeURIComponent(waypointStr)}&alternatives=true`;
             try {
                 const response = await fetch(url);
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.code === 'Ok' && data.routes?.[0]) {
-                        const detourRoute: [number, number][] = data.routes[0].geometry.coordinates.map(
-                            (c: [number, number]) => [c[1], c[0]] as [number, number]
-                        );
-                        // Verify detour actually avoids the block
-                        if (!routePassesThroughBlock(detourRoute, block)) {
-                            console.log(`[Road] Detour successful for block ${block.id}`);
-                            return detourRoute;
+                    if (data.code === 'Ok' && data.routes) {
+                        for (const r of data.routes) {
+                            const detourRoute: [number, number][] = r.geometry.coordinates.map(
+                                (c: [number, number]) => [c[1], c[0]] as [number, number]
+                            );
+                            if (routeClear(detourRoute)) {
+                                console.log(`[Road] Detour successful for block ${block.id} (offset=${offsetDeg.toFixed(4)}°)`);
+                                return detourRoute;
+                            }
                         }
                     }
                 }
@@ -171,7 +200,41 @@ async function fetchSegmentAvoidingBlocks(
         }
     }
 
+    console.warn('[Road] Could not find a route avoiding all blocks — using primary route');
     return directRoute;
+}
+
+/**
+ * Fetch road geometry with alternatives from OSRM.
+ * Returns an array of routes (each is an array of [lat, lng] pairs).
+ * The first route is the primary (shortest), subsequent ones are alternatives.
+ */
+async function fetchRoadGeometryWithAlternatives(
+    from: Location,
+    to: Location
+): Promise<[number, number][][]> {
+    const url = `/api/osrm?from=${from.lng},${from.lat}&to=${to.lng},${to.lat}&alternatives=true`;
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`OSRM ${response.status}`);
+        const data = await response.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            return data.routes.map((route: any) =>
+                route.geometry.coordinates.map(
+                    (c: [number, number]) => [c[1], c[0]] as [number, number]
+                )
+            );
+        }
+        throw new Error(data.code || 'No route');
+    } catch (err) {
+        console.warn('OSRM alternatives fetch failed, falling back to straight line:', err);
+    }
+    return [
+        [
+            [from.lat, from.lng],
+            [to.lat, to.lng],
+        ],
+    ];
 }
 
 /**

@@ -111,20 +111,296 @@ function segmentIntersectsCircle(
     return pointToSegmentDistKm(center, a, b) <= radiusKm;
 }
 
-// A very large distance value that won't overflow when summed in C++ solver
-// (1 billion meters = 1 million km — larger than any real route)
-export const BLOCKED_DISTANCE = 1e9;
+// Penalty multiplier for blocked edges. The solver will heavily penalize
+// routes through blocked edges but can still use them if no alternative
+// tour order exists (e.g., block on the only road from depot).
+// The visualization layer handles showing the actual detour road.
+export const BLOCK_PENALTY_MULTIPLIER = 100;
 
-// Effective blocking radius for road blocks (km).
-// 0.3 km (300 m) — tight enough to block only edges that truly cross
-// the block point, without nuking half the graph for nearby stops.
-export const BLOCK_RADIUS_KM = 0.3;
+// Threshold to detect penalized edges in the matrix (for logging).
+// An edge is considered "penalized" if its weighted distance is ≥50× the
+// original raw distance. We use 50× instead of 100× to account for
+// other modifiers that might also scale the edge.
+export const PENALTY_THRESHOLD_FACTOR = 50;
+
+/**
+ * Detection radius (km): if the actual OSRM road geometry between two
+ * locations passes within this distance of a road block, that edge is
+ * considered blocked. 50m is tight enough to catch blocks ON the road
+ * (~0-20m distance) but NOT flag parallel roads (~100m+ away).
+ * Covers road width (~10m) + GPS click imprecision (~20m) +
+ * OSRM geometry resolution (~10m).
+ */
+const ROUTE_BLOCK_DETECTION_KM = 0.05;
+
+/**
+ * Check if a block point is near any SEGMENT of a route polyline.
+ * Uses pointToSegmentDistKm for each consecutive pair of geometry points.
+ * This catches blocks that sit between two sparse geometry points (where
+ * a point-only check would miss them).
+ */
+function routePassesNearBlock(
+    routeCoords: { lat: number; lng: number }[],
+    block: { lat: number; lng: number },
+    radiusKm: number
+): boolean {
+    // Quick point check first (fast path)
+    for (const pt of routeCoords) {
+        if (haversineKm(pt, block) <= radiusKm) return true;
+    }
+    // Segment check: block between two consecutive geometry points
+    for (let k = 0; k < routeCoords.length - 1; k++) {
+        if (pointToSegmentDistKm(block, routeCoords[k], routeCoords[k + 1]) <= radiusKm) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Detect which edges should be blocked. Uses a multi-phase strategy:
+ *
+ *   Phase 1 — OSRM Route Geometry (PRIMARY — most accurate).
+ *     Fetches the actual road path for each location pair and checks
+ *     if ANY geometry segment passes within 300m of a block. This is
+ *     the ground-truth approach — it examines the real road coordinates.
+ *     Requests are serialized to avoid OSRM rate limiting.
+ *
+ *   Phase 2 — OSRM Distance Table (fallback for failed geometry pairs).
+ *     Only runs for pairs where the Route Geometry request failed.
+ *     Uses a tight 5% tolerance to avoid false positives that would
+ *     block edges where the road merely passes "near" the block.
+ *
+ *   Phase 3 — Straight-line proximity (last resort if OSRM is down).
+ *
+ * IMPORTANT: Route Geometry is the primary method because the OSRM Table
+ * approach with loose tolerance massively over-detects (a single block can
+ * incorrectly block ALL edges in a city-scale graph).
+ */
+export async function detectBlockedEdges(
+    locations: LocationForModifier[],
+    roadBlocks: RoadBlockParam[],
+    rawDistances: number[][]
+): Promise<Set<string>> {
+    const blockedEdges = new Set<string>();
+    if (roadBlocks.length === 0 || locations.length < 2) return blockedEdges;
+
+    const n = locations.length;
+
+    // Build list of all undirected pairs to check
+    const allPairs: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            // Pre-filter: skip pairs where no block is within 50km of midpoint
+            const mid = {
+                lat: (locations[i].lat + locations[j].lat) / 2,
+                lng: (locations[i].lng + locations[j].lng) / 2,
+            };
+            const relevant = roadBlocks.some(block => haversineKm(mid, block) < 50);
+            if (relevant) allPairs.push([i, j]);
+        }
+    }
+
+    console.log(
+        `[BlockDetect] Checking ${allPairs.length} location pairs ` +
+        `against ${roadBlocks.length} block(s)`
+    );
+
+    // ── Phase 1: OSRM Route Geometry (PRIMARY) ──────────────────────────
+    // Fetch the actual road path for each pair and check proximity.
+    // Track which pairs we successfully fetched geometry for.
+    const geometryChecked = new Set<string>();
+    let geometrySuccessCount = 0;
+
+    console.log(`[BlockDetect] Phase 1: Route geometry (sequential)`);
+
+    for (const [i, j] of allPairs) {
+        try {
+            const from = locations[i];
+            const to = locations[j];
+            const url =
+                `https://router.project-osrm.org/route/v1/driving/` +
+                `${from.lng},${from.lat};${to.lng},${to.lat}` +
+                `?overview=full&geometries=geojson`;
+
+            const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+
+            if (!data || data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates) {
+                console.warn(`[BlockDetect] Route ${i}↔${j}: OSRM returned ${data?.code}`);
+                continue;
+            }
+
+            geometrySuccessCount++;
+            geometryChecked.add(`${i}-${j}`);
+
+            const routeCoords: { lat: number; lng: number }[] =
+                data.routes[0].geometry.coordinates.map(
+                    (c: [number, number]) => ({ lat: c[1], lng: c[0] })
+                );
+
+            for (const block of roadBlocks) {
+                // Compute minimum distance from block to any segment of the route
+                let minDistKm = Infinity;
+                for (const pt of routeCoords) {
+                    minDistKm = Math.min(minDistKm, haversineKm(pt, block));
+                }
+                for (let k = 0; k < routeCoords.length - 1; k++) {
+                    minDistKm = Math.min(
+                        minDistKm,
+                        pointToSegmentDistKm(block, routeCoords[k], routeCoords[k + 1])
+                    );
+                }
+
+                if (minDistKm <= ROUTE_BLOCK_DETECTION_KM) {
+                    blockedEdges.add(`${i}->${j}`);
+                    blockedEdges.add(`${j}->${i}`);
+                    console.log(
+                        `[BlockDetect] ✓ Edge ${i}↔${j} BLOCKED by ${block.id} ` +
+                        `(min dist: ${(minDistKm * 1000).toFixed(0)}m, threshold: ${(ROUTE_BLOCK_DETECTION_KM * 1000).toFixed(0)}m)`
+                    );
+                    break; // one block is enough to block this edge
+                } else {
+                    console.log(
+                        `[BlockDetect]   Edge ${i}↔${j} CLEAR of ${block.id} ` +
+                        `(min dist: ${(minDistKm * 1000).toFixed(0)}m, threshold: ${(ROUTE_BLOCK_DETECTION_KM * 1000).toFixed(0)}m)`
+                    );
+                }
+            }
+
+            // Delay between requests to avoid OSRM rate limits
+            await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (err) {
+            console.warn(`[BlockDetect] Route geometry ${i}↔${j} failed:`, err);
+        }
+    }
+
+    const edgesAfterPhase1 = blockedEdges.size;
+    console.log(
+        `[BlockDetect] Phase 1 result: ${edgesAfterPhase1} edges blocked ` +
+        `(${geometrySuccessCount}/${allPairs.length} routes fetched)`
+    );
+
+    // ── Phase 2: OSRM Table fallback (only for pairs geometry missed) ───
+    const uncheckedPairs = allPairs.filter(([i, j]) => !geometryChecked.has(`${i}-${j}`));
+
+    if (uncheckedPairs.length > 0) {
+        console.log(
+            `[BlockDetect] Phase 2: OSRM table fallback for ${uncheckedPairs.length} ` +
+            `unchecked pairs (geometry failed for these)`
+        );
+        await detectViaOSRMTable(locations, roadBlocks, n, blockedEdges, uncheckedPairs);
+    }
+
+    // ── Phase 3: Straight-line proximity (if geometry fetched nothing) ───
+    if (geometrySuccessCount === 0 && blockedEdges.size === 0 && allPairs.length > 0) {
+        console.warn('[BlockDetect] Phase 3: OSRM unavailable — using straight-line proximity (last resort)');
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                if (i === j) continue;
+                for (const block of roadBlocks) {
+                    const segDist = pointToSegmentDistKm(block, locations[i], locations[j]);
+                    if (segDist <= 0.5) {
+                        blockedEdges.add(`${i}->${j}`);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    console.log(`[BlockDetect] Total blocked edges: ${blockedEdges.size}`);
+    return blockedEdges;
+}
+
+/**
+ * OSRM Table fallback: only checks specific pairs where geometry failed.
+ * Uses a tight 5% tolerance to avoid false positives — the Table approach
+ * over-detects at higher tolerances (a single block in a city can falsely
+ * block ALL edges with 20% tolerance because OSRM snaps blocks to the
+ * nearest road segment, which may be "on the way" for many short routes).
+ */
+async function detectViaOSRMTable(
+    locations: LocationForModifier[],
+    roadBlocks: RoadBlockParam[],
+    n: number,
+    blockedEdges: Set<string>,
+    pairsToCheck: [number, number][]
+): Promise<boolean> {
+    const allPoints = [
+        ...locations,
+        ...roadBlocks.map(b => ({ lat: b.lat, lng: b.lng })),
+    ];
+
+    const coords = allPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const url = `https://router.project-osrm.org/table/v1/driving/${coords}?annotations=distance`;
+
+    let extDist: (number | null)[][] | null = null;
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.code === 'Ok' && data.distances) {
+            extDist = data.distances;
+        } else {
+            console.warn(`[BlockDetect] OSRM table code: ${data.code}`);
+            return false;
+        }
+    } catch (err) {
+        console.warn('[BlockDetect] OSRM table fetch failed:', err);
+        return false;
+    }
+
+    if (!extDist) return false;
+
+    // Tight tolerance — only block if via-block is ≤5% more than direct.
+    // This means the block is essentially ON the shortest road path.
+    const TOLERANCE = 0.05;
+
+    // Only check the specific pairs that geometry failed for
+    const pairSet = new Set(pairsToCheck.map(([i, j]) => `${i}-${j}`));
+
+    for (let b = 0; b < roadBlocks.length; b++) {
+        const blockIdx = n + b;
+        let edgesBlocked = 0;
+
+        for (const [i, j] of pairsToCheck) {
+            // Check both directions
+            for (const [a, c] of [[i, j], [j, i]] as [number, number][]) {
+                if (blockedEdges.has(`${a}->${c}`)) continue;
+
+                const directDist = extDist[a]?.[c];
+                const distABlock = extDist[a]?.[blockIdx];
+                const distBlockC = extDist[blockIdx]?.[c];
+
+                if (directDist == null || distABlock == null || distBlockC == null) continue;
+                if (directDist <= 0) continue;
+
+                const viaBlockDist = distABlock + distBlockC;
+                if (viaBlockDist <= directDist * (1 + TOLERANCE)) {
+                    blockedEdges.add(`${a}->${c}`);
+                    edgesBlocked++;
+                }
+            }
+        }
+
+        if (edgesBlocked > 0) {
+            console.log(
+                `[BlockDetect] Table: Block "${roadBlocks[b].id}" — ${edgesBlocked} edges blocked (fallback)`
+            );
+        }
+    }
+
+    return true;
+}
 
 export function applyModifiers(
     distances: number[][],
     durations: number[][],
     params: LogisticsParams = {},
-    locations?: LocationForModifier[]
+    locations?: LocationForModifier[],
+    precomputedBlockedEdges?: Set<string>
 ): ModifiedMatrices {
     const n = distances.length;
     const {
@@ -166,50 +442,24 @@ export function applyModifiers(
         }
     }
 
-    // Apply road blocks: block ALL edges whose path passes near the block.
-    // An edge i→j is blocked if:
-    //   (a) the segment intersects the block circle (flat-earth approx), OR
-    //   (b) either endpoint i or j lies inside the block radius (haversine, exact).
-    if (locations && roadBlocks.length > 0) {
+    // Apply road blocks via precomputed blocked-edge set (from OSRM detection).
+    // Uses a penalty multiplier (100×) instead of infinity — the solver will
+    // strongly prefer unblocked edges but can still find a valid tour when
+    // all edges from/to a node are blocked. The visualization layer handles
+    // rendering actual detour roads around blocks.
+    if (precomputedBlockedEdges && precomputedBlockedEdges.size > 0) {
         let totalBlocked = 0;
-
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < n; j++) {
                 if (i === j) continue;
-                if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
-
-                for (const block of roadBlocks) {
-                    // (a) Segment-to-circle intersection (flat-earth approx)
-                    const segmentHit = segmentIntersectsCircle(
-                        locations[i],
-                        locations[j],
-                        block,
-                        BLOCK_RADIUS_KM
-                    );
-
-                    // (b) Either endpoint inside block radius (haversine, exact)
-                    const endpointHit =
-                        haversineKm(locations[i], block) <= BLOCK_RADIUS_KM ||
-                        haversineKm(locations[j], block) <= BLOCK_RADIUS_KM;
-
-                    if (segmentHit || endpointHit) {
-                        weightedDistances[i][j] = BLOCKED_DISTANCE;
-                        weightedDurations[i][j] = BLOCKED_DISTANCE;
-                        totalBlocked++;
-                        console.log(
-                            `[Modifiers] Blocked edge ${i}→${j} by roadBlock "${block.id}"` +
-                            ` (segment=${segmentHit}, endpoint=${endpointHit})`
-                        );
-                        break; // one block is enough to block this edge
-                    }
+                if (precomputedBlockedEdges.has(`${i}->${j}`)) {
+                    weightedDistances[i][j] *= BLOCK_PENALTY_MULTIPLIER;
+                    weightedDurations[i][j] *= BLOCK_PENALTY_MULTIPLIER;
+                    totalBlocked++;
                 }
             }
         }
-
-        console.log(
-            `[Modifiers] Applied ${roadBlocks.length} road block(s) — ` +
-            `total blocked edges: ${totalBlocked}`
-        );
+        console.log(`[Modifiers] Applied road block penalty (${BLOCK_PENALTY_MULTIPLIER}×) to ${totalBlocked} edges`);
     }
 
     // Apply weather zones: fragile = block edges entirely, non-fragile = weather multiplier
@@ -220,7 +470,6 @@ export function applyModifiers(
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < n; j++) {
                 if (i === j) continue;
-                if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
 
                 for (const zone of weatherZones) {
                     if (
@@ -233,8 +482,8 @@ export function applyModifiers(
                     ) {
                         if (zone.fragile) {
                             // Fragile item: completely avoid this zone (block edges)
-                            weightedDistances[i][j] = BLOCKED_DISTANCE;
-                            weightedDurations[i][j] = BLOCKED_DISTANCE;
+                            weightedDistances[i][j] = 1e9;
+                            weightedDurations[i][j] = 1e9;
                             blockedEdges++;
                             console.log(
                                 `[Modifiers] Blocked edge ${i}→${j} by fragile weather zone "${zone.id}" (${zone.type})`
@@ -261,12 +510,3 @@ export function applyModifiers(
     return { weightedDistances, weightedDurations };
 }
 
-function countBlocked(matrix: number[][], n: number): number {
-    let count = 0;
-    for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-            if (i !== j && matrix[i][j] >= BLOCKED_DISTANCE) count++;
-        }
-    }
-    return count;
-}

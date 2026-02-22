@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 
 import { buildDistanceMatrix, Location } from '@/lib/preprocessing/distance-matrix';
-import { applyModifiers, BLOCKED_DISTANCE } from '@/lib/preprocessing/modifiers';
+import { applyModifiers, detectBlockedEdges, PENALTY_THRESHOLD_FACTOR } from '@/lib/preprocessing/modifiers';
 
 import { heldKarp } from '@/lib/solvers/held-karp';
 import { nearestNeighbor } from '@/lib/solvers/nearest-neighbor';
@@ -69,7 +69,14 @@ export async function POST(request: NextRequest) {
       `sample dist[0][1]=${distances[0]?.[1] ?? 'N/A'}`
     );
 
-    const { weightedDistances } = applyModifiers(distances, durations, params, locations);
+    // Detect blocked edges via OSRM distance-based analysis (async)
+    let blockedEdges: Set<string> | undefined;
+    if (rb && rb.length > 0) {
+      console.log(`[Solve] Detecting blocked edges via OSRM table for ${rb.length} block(s)...`);
+      blockedEdges = await detectBlockedEdges(locations, rb, distances);
+    }
+
+    const { weightedDistances } = applyModifiers(distances, durations, params, locations, blockedEdges);
 
     // Debug: confirm matrix changed after modifier
     console.log(
@@ -130,7 +137,7 @@ export async function POST(request: NextRequest) {
                   const tour = lines[1].trim().split(' ').map(Number);
 
                   console.log(`[Solve] C++ tour: [${tour.join(', ')}]`);
-                  validateTourEdges(tour, weightedDistances);
+                  validateTourEdges(tour, weightedDistances, distances);
 
                   resolve({
                     tour,
@@ -152,7 +159,7 @@ export async function POST(request: NextRequest) {
 
             const fallbackSolution = heldKarp(weightedDistances, 0);
             console.log(`[Solve] TS-fallback tour: [${fallbackSolution.tour.join(', ')}]`);
-            validateTourEdges(fallbackSolution.tour, weightedDistances);
+            validateTourEdges(fallbackSolution.tour, weightedDistances, distances);
             result = {
               solution: {
                 ...fallbackSolution,
@@ -163,7 +170,7 @@ export async function POST(request: NextRequest) {
         } else {
           const hkSolution = heldKarp(weightedDistances, 0);
           console.log(`[Solve] HK tour: [${hkSolution.tour.join(', ')}]`);
-          validateTourEdges(hkSolution.tour, weightedDistances);
+          validateTourEdges(hkSolution.tour, weightedDistances, distances);
           result = {
             solution: hkSolution,
           };
@@ -175,7 +182,7 @@ export async function POST(request: NextRequest) {
       case 'nearest-neighbor': {
         const nnSolution = nearestNeighbor(weightedDistances, 0);
         console.log(`[Solve] NN tour: [${nnSolution.tour.join(', ')}]`);
-        validateTourEdges(nnSolution.tour, weightedDistances);
+        validateTourEdges(nnSolution.tour, weightedDistances, distances);
         result = { solution: nnSolution };
         break;
       }
@@ -184,11 +191,11 @@ export async function POST(request: NextRequest) {
         const cmpResult = compareSolvers(weightedDistances, 0);
         if (cmpResult.heldKarp?.tour?.length) {
           console.log(`[Solve] Compare HK tour: [${cmpResult.heldKarp.tour.join(', ')}]`);
-          validateTourEdges(cmpResult.heldKarp.tour, weightedDistances);
+          validateTourEdges(cmpResult.heldKarp.tour, weightedDistances, distances);
         }
         if (cmpResult.nearestNeighbor?.tour?.length) {
           console.log(`[Solve] Compare NN tour: [${cmpResult.nearestNeighbor.tour.join(', ')}]`);
-          validateTourEdges(cmpResult.nearestNeighbor.tour, weightedDistances);
+          validateTourEdges(cmpResult.nearestNeighbor.tour, weightedDistances, distances);
         }
         result = cmpResult;
         break;
@@ -220,7 +227,7 @@ export async function POST(request: NextRequest) {
 
         if (quantumData.tour) {
           console.log(`[Solve] QAOA tour: [${quantumData.tour.join(', ')}]`);
-          validateTourEdges(quantumData.tour, weightedDistances);
+          validateTourEdges(quantumData.tour, weightedDistances, distances);
         }
 
         result = {
@@ -243,7 +250,7 @@ export async function POST(request: NextRequest) {
         console.log(`[Solve] Starting Hybrid Quantum-Classical solver for ${weightedDistances.length} cities...`);
         const hybridSolution = await hybridQuantumHeldKarp(weightedDistances, 0);
         console.log(`[Solve] Hybrid tour: [${hybridSolution.tour.join(', ')}]`);
-        validateTourEdges(hybridSolution.tour, weightedDistances);
+        validateTourEdges(hybridSolution.tour, weightedDistances, distances);
         result = {
           solution: hybridSolution,
         };
@@ -254,7 +261,7 @@ export async function POST(request: NextRequest) {
         console.log(`[Solve] Starting Pre-Warm HK solver for ${weightedDistances.length} cities...`);
         const prewarmSolution = await prewarmHeldKarpHybrid(weightedDistances, 0, solverEngine);
         console.log(`[Solve] PreWarm-HK tour: [${prewarmSolution.tour.join(', ')}]`);
-        validateTourEdges(prewarmSolution.tour, weightedDistances);
+        validateTourEdges(prewarmSolution.tour, weightedDistances, distances);
         result = {
           solution: prewarmSolution,
         };
@@ -329,29 +336,35 @@ function tourRawDistance(tour: number[], rawDist: number[][]): number {
 }
 
 /**
- * Validate that no edge in the solver tour uses a blocked edge.
- * Logs a warning for each violation.
+ * Check if the solver tour uses any penalized (road-blocked) edges.
+ * Compares weighted vs raw distance to detect penalty-multiplied edges.
+ * Logs info (not warning) because using penalized edges is expected when
+ * all edges from a node are blocked — the solver picks the least-costly
+ * option and the visualization handles showing the detour road.
  */
 function validateTourEdges(
   tour: number[],
-  matrix: number[][]
+  weightedMatrix: number[][],
+  rawMatrix?: number[][]
 ): void {
-  if (!tour || tour.length < 2) return;
-  let violations = 0;
+  if (!tour || tour.length < 2 || !rawMatrix) return;
+  let penalizedCount = 0;
   for (let k = 0; k < tour.length - 1; k++) {
     const i = tour[k];
     const j = tour[k + 1];
-    const cost = matrix[i]?.[j];
-    if (cost != null && cost >= BLOCKED_DISTANCE) {
-      violations++;
-      console.warn(
-        `[Solve] ⚠ BLOCKED EDGE in tour: ${i}→${j} cost=${cost}`
+    const weighted = weightedMatrix[i]?.[j];
+    const raw = rawMatrix[i]?.[j];
+    if (weighted != null && raw != null && raw > 0 && weighted / raw >= PENALTY_THRESHOLD_FACTOR) {
+      penalizedCount++;
+      console.log(
+        `[Solve] ℹ Penalized edge in tour: ${i}→${j} (${PENALTY_THRESHOLD_FACTOR}×+ penalty — block detected)`
       );
     }
   }
-  if (violations > 0) {
-    console.warn(
-      `[Solve] ⚠ Tour contains ${violations} blocked edge(s) — roadblock enforcement may have failed`
+  if (penalizedCount > 0) {
+    console.log(
+      `[Solve] ℹ Tour uses ${penalizedCount} penalized edge(s) — ` +
+      `visualization will show detour roads around blocks`
     );
   }
 }
