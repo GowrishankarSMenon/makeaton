@@ -7,6 +7,7 @@
 export interface RoadBlockParam {
     lat: number;
     lng: number;
+    radiusKm?: number;
     id: string;
 }
 
@@ -115,9 +116,9 @@ function segmentIntersectsCircle(
 export const BLOCKED_DISTANCE = 1e9;
 
 // Effective blocking radius for road blocks (km).
-// 0.3 km (300 m) — tight enough to block only edges that truly cross
-// the block point, without nuking half the graph for nearby stops.
-export const BLOCK_RADIUS_KM = 0.3;
+// Default 1.0 km — wide enough to reliably block road segments passing
+// through the block zone. Each block can override via its own radiusKm.
+export const BLOCK_RADIUS_KM = 1.0;
 
 export function applyModifiers(
     distances: number[][],
@@ -178,18 +179,20 @@ export function applyModifiers(
                 if (weightedDistances[i][j] >= BLOCKED_DISTANCE) continue;
 
                 for (const block of roadBlocks) {
+                    const effectiveRadius = block.radiusKm ?? BLOCK_RADIUS_KM;
+
                     // (a) Segment-to-circle intersection (flat-earth approx)
                     const segmentHit = segmentIntersectsCircle(
                         locations[i],
                         locations[j],
                         block,
-                        BLOCK_RADIUS_KM
+                        effectiveRadius
                     );
 
                     // (b) Either endpoint inside block radius (haversine, exact)
                     const endpointHit =
-                        haversineKm(locations[i], block) <= BLOCK_RADIUS_KM ||
-                        haversineKm(locations[j], block) <= BLOCK_RADIUS_KM;
+                        haversineKm(locations[i], block) <= effectiveRadius ||
+                        haversineKm(locations[j], block) <= effectiveRadius;
 
                     if (segmentHit || endpointHit) {
                         weightedDistances[i][j] = BLOCKED_DISTANCE;

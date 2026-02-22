@@ -31,6 +31,7 @@ export default function Home() {
         addCongestion,
         removeCongestion,
         updateCongestion,
+        updateBlock,
         updateBlockPosition,
         updateCongestionPosition,
         clearRestrictions,
@@ -230,6 +231,7 @@ export default function Home() {
                     onRemoveBlock={removeBlock}
                     onRemoveCongestion={removeCongestion}
                     onUpdateCongestion={updateCongestion}
+                    onUpdateBlock={updateBlock}
                     onClearRestrictions={clearRestrictions}
                 />
 

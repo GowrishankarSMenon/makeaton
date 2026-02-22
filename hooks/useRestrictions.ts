@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 export interface RoadBlock {
     lat: number;
     lng: number;
+    radiusKm: number;
     id: string;
 }
 
@@ -27,7 +28,7 @@ export function useRestrictions() {
         blockCounter++;
         setRoadBlocks((prev) => [
             ...prev,
-            { lat, lng, id: `block-${blockCounter}-${Date.now()}` },
+            { lat, lng, radiusKm: 1.0, id: `block-${blockCounter}-${Date.now()}` },
         ]);
     }, []);
 
@@ -68,6 +69,15 @@ export function useRestrictions() {
         );
     }, []);
 
+    const updateBlock = useCallback(
+        (id: string, updates: Partial<Pick<RoadBlock, 'radiusKm'>>) => {
+            setRoadBlocks((prev) =>
+                prev.map((b) => (b.id === id ? { ...b, ...updates } : b))
+            );
+        },
+        []
+    );
+
     const updateCongestionPosition = useCallback((id: string, lat: number, lng: number) => {
         setCongestionZones((prev) =>
             prev.map((z) => (z.id === id ? { ...z, lat, lng } : z))
@@ -88,6 +98,7 @@ export function useRestrictions() {
         removeCongestion,
         updateCongestion,
         updateBlockPosition,
+        updateBlock,
         updateCongestionPosition,
         clearRestrictions,
     };

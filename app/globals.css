@@ -1791,3 +1791,30 @@ body {
   from { opacity: 0; transform: translateX(-50%) translateY(-16px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ── Road Block Radius Circle ──────────────────────────── */
+.block-radius-circle {
+  animation: blockRadiusPulse 3s ease-in-out infinite;
+}
+
+@keyframes blockRadiusPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Block Radius Slider ───────────────────────────────── */
+.zone-slider.block-radius::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.5);
+}
+
+.zone-slider.block-radius::-moz-range-thumb {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.5);
+  border: none;
+}
+
+.zone-control-value.block-radius-value {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+}

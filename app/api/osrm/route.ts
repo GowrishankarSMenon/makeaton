@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
  * Supports two modes:
  *   ?from=lng,lat&to=lng,lat          — two-point route (legacy)
  *   ?waypoints=lng,lat;lng,lat;...    — multi-waypoint route
+ *
+ * Optional:
+ *   ?alternatives=true                — request alternative routes from OSRM
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -22,7 +25,10 @@ export async function GET(req: NextRequest) {
     coords = `${from};${to}`;
   }
 
-  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+  const wantAlternatives = searchParams.get('alternatives') === 'true';
+  const altParam = wantAlternatives ? '&alternatives=3' : '';
+
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson${altParam}`;
 
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
