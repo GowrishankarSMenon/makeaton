@@ -271,3 +271,74 @@ def _repair_full_tour(x_matrix, n, tsp_data):
         slots[p] = city
 
     return slots + [slots[0]]
+
+
+# ---------------------------------------------------------------------------
+# Warm-start: convert a classical tour to a QAOA initial state
+# ---------------------------------------------------------------------------
+
+def tour_to_initial_state(tour, tsp_data):
+    """
+    Convert a classical tour into a QuantumCircuit that prepares the
+    corresponding computational basis state.  This gives QAOA a "warm
+    start" — instead of exploring from uniform superposition, it begins
+    near a known-good solution and only needs to search the neighbourhood.
+
+    Returns (QuantumCircuit, binary_vector).
+    """
+    from qiskit.circuit import QuantumCircuit
+
+    num_qubits = tsp_data["num_qubits"]
+
+    if tsp_data.get("reduced", False):
+        binary = _tour_to_binary_reduced(tour, tsp_data)
+    else:
+        binary = _tour_to_binary_full(tour, tsp_data)
+
+    # Build circuit: X gate wherever binary[i] == 1
+    qc = QuantumCircuit(num_qubits)
+    for i in range(min(len(binary), num_qubits)):
+        if binary[i] == 1:
+            qc.x(i)
+
+    print(
+        f"[WarmStart] Built initial state for {num_qubits} qubits, "
+        f"ones={sum(binary[:num_qubits])}",
+        flush=True,
+    )
+    return qc, binary
+
+
+def _tour_to_binary_reduced(tour, tsp_data):
+    """Convert a tour to the binary vector for reduced (n-1)² encoding."""
+    start_node = tsp_data["start_node"]
+    cities = tsp_data["cities"]
+    m = len(cities)  # n - 1
+
+    # Strip start_node and closing duplicate
+    inner = [c for c in tour if c != start_node]
+    if len(inner) > m:
+        inner = inner[:m]
+
+    binary = [0] * (m * m)
+    city_to_idx = {c: idx for idx, c in enumerate(cities)}
+
+    for p, city in enumerate(inner):
+        if city in city_to_idx and p < m:
+            ci = city_to_idx[city]
+            binary[ci * m + p] = 1
+
+    return binary
+
+
+def _tour_to_binary_full(tour, tsp_data):
+    """Convert a tour to the binary vector for full n² encoding."""
+    n = tsp_data["num_cities"]
+    inner = tour[:-1] if len(tour) > n else tour
+
+    binary = [0] * (n * n)
+    for p, city in enumerate(inner):
+        if city < n and p < n:
+            binary[city * n + p] = 1
+
+    return binary

@@ -105,7 +105,7 @@ def reset_ibm_service():
 # Public solver entry point
 # ---------------------------------------------------------------------------
 
-def solve_with_qaoa(qubo, reps=1, max_iterations=80):
+def solve_with_qaoa(qubo, reps=1, max_iterations=80, warm_start_state=None):
     """
     Solve a QUBO using the best available quantum backend.
 
@@ -117,11 +117,21 @@ def solve_with_qaoa(qubo, reps=1, max_iterations=80):
         qubo: QuadraticProgram (QUBO form) from qiskit_optimization
         reps: int — QAOA layers
         max_iterations: int — max classical optimizer iterations
+        warm_start_state: Optional QuantumCircuit — initial state from a
+            classical solution (e.g. Nearest Neighbor). Replaces the default
+            uniform superposition so QAOA starts near a known-good tour.
 
     Returns:
         dict with result, timing, quantum metadata, and backend info
     """
     num_qubits = qubo.get_num_vars()
+
+    if warm_start_state is not None:
+        print(
+            f"[QAOA] ⚡ Warm-start enabled — QAOA will begin from "
+            f"classical solution state ({num_qubits} qubits)",
+            flush=True,
+        )
 
     # Get the Ising Hamiltonian for reporting
     ising_op, offset = qubo.to_ising()
@@ -149,11 +159,13 @@ def solve_with_qaoa(qubo, reps=1, max_iterations=80):
         )
         # Force 1 retry max for speed (don't waste minutes retrying)
         result_data = _try_ibm_with_fallback(
-            qubo, reps, ibm_max_iter, num_qubits, quantum_mode, min(max_retries, 1)
+            qubo, reps, ibm_max_iter, num_qubits, quantum_mode, min(max_retries, 1),
+            warm_start_state=warm_start_state,
         )
     else:
         # Pure local mode
-        result_data = _solve_local(qubo, reps, max_iterations, num_qubits)
+        result_data = _solve_local(qubo, reps, max_iterations, num_qubits,
+                                   warm_start_state=warm_start_state)
 
     # Attach Ising metadata
     result_data["num_ising_terms"] = num_ising_terms
@@ -185,7 +197,8 @@ def _is_fatal_error(error: Exception) -> bool:
     return any(kw in msg for kw in _FATAL_ERROR_KEYWORDS)
 
 
-def _try_ibm_with_fallback(qubo, reps, max_iterations, num_qubits, quantum_mode, max_retries):
+def _try_ibm_with_fallback(qubo, reps, max_iterations, num_qubits, quantum_mode, max_retries,
+                          warm_start_state=None):
     """
     Try IBM Quantum with retries. Falls back to local only for transient errors.
     Config/auth errors fail fast (no retry, no silent fallback).
@@ -198,6 +211,7 @@ def _try_ibm_with_fallback(qubo, reps, max_iterations, num_qubits, quantum_mode,
             return _solve_ibm(
                 qubo, reps, max_iterations, num_qubits,
                 prefer_simulator=(quantum_mode == "ibm_sim"),
+                warm_start_state=warm_start_state,
             )
         except Exception as e:
             last_error = e
@@ -225,13 +239,15 @@ def _try_ibm_with_fallback(qubo, reps, max_iterations, num_qubits, quantum_mode,
         f"[IBM] Falling back to local simulator. Reason: {last_error}",
         flush=True,
     )
-    result_data = _solve_local(qubo, reps, max_iterations, num_qubits)
+    result_data = _solve_local(qubo, reps, max_iterations, num_qubits,
+                               warm_start_state=warm_start_state)
     result_data["ibm_fallback_reason"] = str(last_error)
     result_data["execution_mode"] = "local_fallback"
     return result_data
 
 
-def _solve_ibm(qubo, reps, max_iterations, num_qubits, prefer_simulator=False):
+def _solve_ibm(qubo, reps, max_iterations, num_qubits, prefer_simulator=False,
+               warm_start_state=None):
     """
     Solve using IBM Quantum Runtime with SamplerV2 and full error suppression.
 
@@ -359,12 +375,21 @@ def _solve_ibm(qubo, reps, max_iterations, num_qubits, prefer_simulator=False):
     ising_op, ising_offset = qubo.to_ising()
     n_vars = qubo.get_num_vars()
 
+    # Warm start: use small angles so QAOA explores near the classical solution
+    # rather than random. Without warm start: random initial point.
+    if warm_start_state is not None:
+        initial_point = np.array([0.01, 0.1] * reps, dtype=float)
+        print(f"[IBM] Using warm-start initial state + small angles", flush=True)
+    else:
+        initial_point = np.random.uniform(-np.pi, np.pi, 2 * reps)
+
     qaoa = QAOA(
         sampler=sampler,
         optimizer=optimizer,
         reps=reps,
         callback=callback,
-        initial_point=np.random.uniform(-np.pi, np.pi, 2 * reps),
+        initial_point=initial_point,
+        initial_state=warm_start_state,
     )
 
     # Run QAOA optimization directly on the Ising operator
@@ -486,7 +511,7 @@ def _decode_ibm_eigenstate(eigen_result, qubo, n_vars):
 # Local solver (StatevectorSampler / NumPy fallback)
 # ---------------------------------------------------------------------------
 
-def _solve_local(qubo, reps, max_iterations, num_qubits):
+def _solve_local(qubo, reps, max_iterations, num_qubits, warm_start_state=None):
     """
     Solve locally using StatevectorSampler (small) or NumPy (large).
     This is the fallback path and also the default when QUANTUM_MODE=local.
@@ -499,7 +524,8 @@ def _solve_local(qubo, reps, max_iterations, num_qubits):
 
     if use_qaoa:
         result, circuit_depth = _solve_local_qaoa(
-            qubo, reps, max_iterations, iteration_count, energies
+            qubo, reps, max_iterations, iteration_count, energies,
+            warm_start_state=warm_start_state,
         )
         method = f"QAOA (p={reps})"
     else:
@@ -522,7 +548,8 @@ def _solve_local(qubo, reps, max_iterations, num_qubits):
     }
 
 
-def _solve_local_qaoa(qubo, reps, max_iterations, iteration_count, energies):
+def _solve_local_qaoa(qubo, reps, max_iterations, iteration_count, energies,
+                     warm_start_state=None):
     """Solve using QAOA with local StatevectorSampler (for small problems)."""
     from qiskit_algorithms import QAOA
     from qiskit_algorithms.optimizers import COBYLA
@@ -536,12 +563,20 @@ def _solve_local_qaoa(qubo, reps, max_iterations, iteration_count, energies):
     sampler = StatevectorSampler()
     optimizer = COBYLA(maxiter=max_iterations, rhobeg=0.5)
 
+    # Warm start: small angles near the classical solution
+    if warm_start_state is not None:
+        initial_point = np.array([0.01, 0.1] * reps, dtype=float)
+        print(f"[Local] Warm-start QAOA: initial_state set, small angles", flush=True)
+    else:
+        initial_point = np.random.uniform(-np.pi, np.pi, 2 * reps)
+
     qaoa = QAOA(
         sampler=sampler,
         optimizer=optimizer,
         reps=reps,
         callback=callback,
-        initial_point=np.random.uniform(-np.pi, np.pi, 2 * reps),
+        initial_point=initial_point,
+        initial_state=warm_start_state,
     )
 
     qaoa_optimizer = MinimumEigenOptimizer(qaoa)

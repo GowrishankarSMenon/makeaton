@@ -13,7 +13,7 @@ export interface RoadBlockForRoute {
     id: string;
 }
 
-const BLOCK_RADIUS_KM = 2.0;
+const BLOCK_RADIUS_KM = 0.3;
 
 /**
  * Haversine distance in km between two [lat, lng] points.
@@ -42,10 +42,12 @@ function pointToSegmentDistKm(
     a: { lat: number; lng: number },
     b: { lat: number; lng: number }
 ): number {
-    const cosLat = Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180));
-    const ax = a.lng * cosLat, ay = a.lat;
-    const bx = b.lng * cosLat, by = b.lat;
-    const px = p.lng * cosLat, py = p.lat;
+    const DEG_TO_KM = 111.32;
+    const midLat = (a.lat + b.lat + p.lat) / 3;
+    const cosLat = Math.cos(midLat * (Math.PI / 180));
+    const ax = a.lng * cosLat * DEG_TO_KM, ay = a.lat * DEG_TO_KM;
+    const bx = b.lng * cosLat * DEG_TO_KM, by = b.lat * DEG_TO_KM;
+    const px = p.lng * cosLat * DEG_TO_KM, py = p.lat * DEG_TO_KM;
     const dx = bx - ax, dy = by - ay;
     const lenSq = dx * dx + dy * dy;
     let t = 0;
@@ -53,7 +55,7 @@ function pointToSegmentDistKm(
         t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
     }
     const cx = ax + t * dx, cy = ay + t * dy;
-    return Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) * 111.32;
+    return Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
 }
 
 /**

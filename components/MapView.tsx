@@ -363,7 +363,10 @@ export default function MapView({
                 routeLayersRef.current.forEach((l) => map.removeLayer(l));
                 routeLayersRef.current = [];
 
-                // Convert roadBlocks to the format expected by getRoadRoute
+                // Convert roadBlocks so the visualization can reroute displayed
+                // road geometry around blocks (the solver already avoided blocked
+                // edges, but OSRM road geometry between chosen stops might still
+                // visually curve through the block area).
                 const blocks: RoadBlockForRoute[] = roadBlocks.map(b => ({
                     lat: b.lat,
                     lng: b.lng,

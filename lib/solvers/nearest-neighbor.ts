@@ -7,6 +7,9 @@
 
 import { SolverResult } from './held-karp';
 
+// Must match the value in modifiers.ts — edges with cost >= this are blocked
+const BLOCKED_THRESHOLD = 1e9;
+
 export function nearestNeighbor(dist: number[][], startNode: number = 0): SolverResult {
     const n = dist.length;
 
@@ -22,12 +25,34 @@ export function nearestNeighbor(dist: number[][], startNode: number = 0): Solver
     while (visited.size < n) {
         let nearest = -1;
         let nearestDist = Infinity;
+        let nearestBlocked = -1;
+        let nearestBlockedDist = Infinity;
 
         for (let j = 0; j < n; j++) {
-            if (!visited.has(j) && dist[current][j] < nearestDist) {
-                nearestDist = dist[current][j];
-                nearest = j;
+            if (visited.has(j)) continue;
+
+            if (dist[current][j] < BLOCKED_THRESHOLD) {
+                // Prefer non-blocked edges
+                if (dist[current][j] < nearestDist) {
+                    nearestDist = dist[current][j];
+                    nearest = j;
+                }
+            } else {
+                // Track nearest blocked as last resort
+                if (dist[current][j] < nearestBlockedDist) {
+                    nearestBlockedDist = dist[current][j];
+                    nearestBlocked = j;
+                }
             }
+        }
+
+        // Use non-blocked if available, otherwise forced to use blocked
+        if (nearest === -1) {
+            nearest = nearestBlocked;
+            nearestDist = nearestBlockedDist;
+            console.warn(
+                `[NN] ⚠ Forced to use blocked edge ${current}→${nearest} — no unblocked neighbor available`
+            );
         }
 
         visited.add(nearest);

@@ -48,6 +48,8 @@ def solve():
         if n > 10:
             return jsonify({"error": f"QAOA limited to 10 locations (got {n}). n²={n*n} qubits."}), 400
 
+        warm_start_tour = data.get("warmStartTour", None)
+
         print(f"[QAOA] Solving TSP for {n} cities ({n*n} qubits)...", flush=True)
 
         # Step 1: Build QUBO
@@ -55,12 +57,25 @@ def solve():
         tsp_data["original_distances"] = dist_matrix
         print(f"[QAOA] QUBO built: {tsp_data['num_qubits']} qubits", flush=True)
 
+        # Step 1.5: Build warm-start initial state from classical tour
+        warm_start_state = None
+        if warm_start_tour and len(warm_start_tour) >= n:
+            try:
+                from tsp_qubo import tour_to_initial_state
+                warm_start_state, _ = tour_to_initial_state(warm_start_tour, tsp_data)
+                print(f"[QAOA] ⚡ Warm-start from classical tour: {warm_start_tour}", flush=True)
+            except Exception as ws_err:
+                print(f"[QAOA] Warm-start build failed (continuing without): {ws_err}", flush=True)
+
         # Step 2: Solve with QAOA
         # Reps=1 keeps circuit shallow. maxiter=1 for speed (single IBM job).
         reps = 1
         max_iter = 1
 
-        qaoa_result = solve_with_qaoa(tsp_data["qubo"], reps=reps, max_iterations=max_iter)
+        qaoa_result = solve_with_qaoa(
+            tsp_data["qubo"], reps=reps, max_iterations=max_iter,
+            warm_start_state=warm_start_state,
+        )
         print(f"[QAOA] Solved in {qaoa_result['qaoa_time_ms']} ms", flush=True)
 
         # Step 3: Decode to tour
@@ -97,6 +112,7 @@ def solve():
                 "backend": qaoa_result.get("backend", "unknown"),
                 "executionMode": qaoa_result.get("execution_mode", "local_simulator"),
                 "fallbackReason": qaoa_result.get("ibm_fallback_reason", None),
+                "warmStartUsed": warm_start_state is not None,
             },
         }
 

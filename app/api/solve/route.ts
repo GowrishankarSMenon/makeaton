@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 
 import { buildDistanceMatrix, Location } from '@/lib/preprocessing/distance-matrix';
-import { applyModifiers } from '@/lib/preprocessing/modifiers';
+import { applyModifiers, BLOCKED_DISTANCE } from '@/lib/preprocessing/modifiers';
 
 import { heldKarp } from '@/lib/solvers/held-karp';
 import { nearestNeighbor } from '@/lib/solvers/nearest-neighbor';
 import { compareSolvers } from '@/lib/solvers/compare';
+import { hybridQuantumHeldKarp, prewarmHeldKarpHybrid } from '@/lib/solvers/hybrid-qhk';
 
 export const runtime = 'nodejs';
 export const maxDuration = 600;
@@ -61,11 +62,18 @@ export async function POST(request: NextRequest) {
       console.log(`[Solve] Restrictions received: ${rb?.length || 0} road blocks, ${cz?.length || 0} congestion zones`);
     }
 
-    const { weightedDistances } = applyModifiers(
-      distances,
-      durations,
-      params,
-      locations
+    // Debug: confirm roadBlocks and locations before modifier
+    console.log(
+      `[Solve] Pre-modifier: ${locations.length} locations, ` +
+      `${(params as any).roadBlocks?.length ?? 0} roadBlocks, ` +
+      `sample dist[0][1]=${distances[0]?.[1] ?? 'N/A'}`
+    );
+
+    const { weightedDistances } = applyModifiers(distances, durations, params, locations);
+
+    // Debug: confirm matrix changed after modifier
+    console.log(
+      `[Solve] Post-modifier: sample weightedDist[0][1]=${weightedDistances[0]?.[1] ?? 'N/A'}`
     );
 
     const startSolve = performance.now();
@@ -101,6 +109,10 @@ export async function POST(request: NextRequest) {
                 errorOutput += data.toString();
               });
 
+              proc.on('error', (err) => {
+                reject(new Error(`Failed to start C++ solver: ${err.message}`));
+              });
+
               proc.on('close', (code) => {
                 if (code !== 0) {
                   return reject(
@@ -116,6 +128,9 @@ export async function POST(request: NextRequest) {
 
                   const distance = parseFloat(lines[0]);
                   const tour = lines[1].trim().split(' ').map(Number);
+
+                  console.log(`[Solve] C++ tour: [${tour.join(', ')}]`);
+                  validateTourEdges(tour, weightedDistances);
 
                   resolve({
                     tour,
@@ -135,29 +150,49 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             console.warn('C++ solver failed — falling back to TS', err);
 
+            const fallbackSolution = heldKarp(weightedDistances, 0);
+            console.log(`[Solve] TS-fallback tour: [${fallbackSolution.tour.join(', ')}]`);
+            validateTourEdges(fallbackSolution.tour, weightedDistances);
             result = {
               solution: {
-                ...heldKarp(weightedDistances, 0),
+                ...fallbackSolution,
                 solverName: 'Held-Karp (TS fallback)',
               },
             };
           }
         } else {
+          const hkSolution = heldKarp(weightedDistances, 0);
+          console.log(`[Solve] HK tour: [${hkSolution.tour.join(', ')}]`);
+          validateTourEdges(hkSolution.tour, weightedDistances);
           result = {
-            solution: heldKarp(weightedDistances, 0),
+            solution: hkSolution,
           };
         }
 
         break;
       }
 
-      case 'nearest-neighbor':
-        result = { solution: nearestNeighbor(weightedDistances, 0) };
+      case 'nearest-neighbor': {
+        const nnSolution = nearestNeighbor(weightedDistances, 0);
+        console.log(`[Solve] NN tour: [${nnSolution.tour.join(', ')}]`);
+        validateTourEdges(nnSolution.tour, weightedDistances);
+        result = { solution: nnSolution };
         break;
+      }
 
-      case 'compare':
-        result = compareSolvers(weightedDistances, 0);
+      case 'compare': {
+        const cmpResult = compareSolvers(weightedDistances, 0);
+        if (cmpResult.heldKarp?.tour?.length) {
+          console.log(`[Solve] Compare HK tour: [${cmpResult.heldKarp.tour.join(', ')}]`);
+          validateTourEdges(cmpResult.heldKarp.tour, weightedDistances);
+        }
+        if (cmpResult.nearestNeighbor?.tour?.length) {
+          console.log(`[Solve] Compare NN tour: [${cmpResult.nearestNeighbor.tour.join(', ')}]`);
+          validateTourEdges(cmpResult.nearestNeighbor.tour, weightedDistances);
+        }
+        result = cmpResult;
         break;
+      }
 
       case 'qaoa': {
         const quantumResponse = await fetch(
@@ -183,6 +218,11 @@ export async function POST(request: NextRequest) {
 
         const quantumData = await quantumResponse.json();
 
+        if (quantumData.tour) {
+          console.log(`[Solve] QAOA tour: [${quantumData.tour.join(', ')}]`);
+          validateTourEdges(quantumData.tour, weightedDistances);
+        }
+
         result = {
           solution: {
             tour: quantumData.tour,
@@ -196,6 +236,28 @@ export async function POST(request: NextRequest) {
           },
         };
 
+        break;
+      }
+
+      case 'hybrid-qhk': {
+        console.log(`[Solve] Starting Hybrid Quantum-Classical solver for ${weightedDistances.length} cities...`);
+        const hybridSolution = await hybridQuantumHeldKarp(weightedDistances, 0);
+        console.log(`[Solve] Hybrid tour: [${hybridSolution.tour.join(', ')}]`);
+        validateTourEdges(hybridSolution.tour, weightedDistances);
+        result = {
+          solution: hybridSolution,
+        };
+        break;
+      }
+
+      case 'prewarm-hk': {
+        console.log(`[Solve] Starting Pre-Warm HK solver for ${weightedDistances.length} cities...`);
+        const prewarmSolution = await prewarmHeldKarpHybrid(weightedDistances, 0, solverEngine);
+        console.log(`[Solve] PreWarm-HK tour: [${prewarmSolution.tour.join(', ')}]`);
+        validateTourEdges(prewarmSolution.tour, weightedDistances);
+        result = {
+          solution: prewarmSolution,
+        };
         break;
       }
 
@@ -222,20 +284,25 @@ export async function POST(request: NextRequest) {
       rawDistanceMatrix: distances,
     };
 
-    const solution = result.solution as { tour: number[] } | undefined;
-    const hkResult = result.heldKarp as { tour: number[] } | undefined;
-    const nnResult = result.nearestNeighbor as { tour: number[] } | undefined;
+    const solution = result.solution as { tour: number[]; distance: number } | undefined;
+    const hkResult = result.heldKarp as { tour: number[]; distance: number } | undefined;
+    const nnResult = result.nearestNeighbor as { tour: number[]; distance: number } | undefined;
 
-    if (solution) {
+    // Compute ACTUAL road distance from the raw (unweighted) matrix so the
+    // UI shows real-world km, not the inflated solver-internal cost.
+    if (solution && solution.tour.length > 1) {
       response.routeCoords = solution.tour.map((i: number) => locations[i]);
+      solution.distance = tourRawDistance(solution.tour, distances);
     }
 
-    if (hkResult && hkResult.tour) {
+    if (hkResult && hkResult.tour && hkResult.tour.length > 1) {
       response.heldKarpRouteCoords = hkResult.tour.map((i: number) => locations[i]);
+      hkResult.distance = tourRawDistance(hkResult.tour, distances);
     }
 
-    if (nnResult && nnResult.tour) {
+    if (nnResult && nnResult.tour && nnResult.tour.length > 1) {
       response.nnRouteCoords = nnResult.tour.map((i: number) => locations[i]);
+      nnResult.distance = tourRawDistance(nnResult.tour, distances);
     }
 
     return NextResponse.json(response);
@@ -246,5 +313,45 @@ export async function POST(request: NextRequest) {
       err instanceof Error ? err.message : 'Internal server error';
 
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Compute the actual road distance (meters) of a tour using the raw
+ * OSRM distance matrix — no modifiers, no blocking penalties.
+ */
+function tourRawDistance(tour: number[], rawDist: number[][]): number {
+  let d = 0;
+  for (let k = 0; k < tour.length - 1; k++) {
+    d += rawDist[tour[k]][tour[k + 1]];
+  }
+  return d;
+}
+
+/**
+ * Validate that no edge in the solver tour uses a blocked edge.
+ * Logs a warning for each violation.
+ */
+function validateTourEdges(
+  tour: number[],
+  matrix: number[][]
+): void {
+  if (!tour || tour.length < 2) return;
+  let violations = 0;
+  for (let k = 0; k < tour.length - 1; k++) {
+    const i = tour[k];
+    const j = tour[k + 1];
+    const cost = matrix[i]?.[j];
+    if (cost != null && cost >= BLOCKED_DISTANCE) {
+      violations++;
+      console.warn(
+        `[Solve] ⚠ BLOCKED EDGE in tour: ${i}→${j} cost=${cost}`
+      );
+    }
+  }
+  if (violations > 0) {
+    console.warn(
+      `[Solve] ⚠ Tour contains ${violations} blocked edge(s) — roadblock enforcement may have failed`
+    );
   }
 }

@@ -118,7 +118,11 @@ export default function Home() {
                         ? 'Applying greedy nearest-neighbor heuristic...'
                         : algorithm === 'qaoa'
                             ? 'Executing QAOA quantum circuit on simulator...'
-                            : 'Running dual solver comparison...';
+                            : algorithm === 'hybrid-qhk'
+                                ? 'Phase 1: Quantum exploration via QAOA → Phase 2: Held-Karp refinement...'
+                                : algorithm === 'prewarm-hk'
+                                    ? 'Phase 0: Held-Karp exact pre-warm → QAOA quantum warm-start...'
+                                    : 'Running dual solver comparison...';
             setOverlayStatus(statusMsg);
 
             const solveParams = getParamsForSolve(locations.map((l) => l.priority));
